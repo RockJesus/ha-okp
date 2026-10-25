@@ -10,6 +10,7 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -82,6 +83,14 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
         self._attr_unique_id = f"okp_cloud_{device_id}"
         self._attr_model = model
         self._attr_manufacturer = "OKP"
+        # Attach the entity to a device in the device registry (auto-created).
+        # identifiers use the CoolKit third_dev_id, stable across versions.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=name,
+            manufacturer="OKP",
+            model=model or "OKP 扫地机器人",
+        )
         self._attr_supported_features = (
             VacuumEntityFeature.START
             | VacuumEntityFeature.PAUSE

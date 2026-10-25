@@ -24,7 +24,7 @@ Home Assistant 自定义集成：通过 **OKP 云账号（用户名+密码）** 
 
 | 实体 | 类型 | 说明 |
 | --- | --- | --- |
-| `vacuum.okp_xxx` | Vacuum | 扫地机主体（状态/电量/吸力/控制） |
+| `vacuum.okp_xxx` | Vacuum | 扫地机主体（状态/电量/吸力/控制），挂载于设备注册表设备 |
 
 状态属性包含：`work_state`、`clean_mode`（smart/random/wall_follow/spiral）、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online` 等。
 
@@ -51,6 +51,7 @@ Home Assistant 自定义集成：通过 **OKP 云账号（用户名+密码）** 
 <details>
 <summary>更新日志</summary>
 
+- v1.0.2（2026-10-25）：实体挂载到设备注册表设备（DeviceInfo，identifiers=third_dev_id），设备下可见扫地机
 - v1.0.1（2026-10-25）：修复 `VacuumEntityFeature.BATTERY` 在新版 HA 已移除导致的 vacuum 平台 setup 崩溃（登录成功但无实体）
 - v1.0.0（2026-10-25）：首个云账号登录版
 
