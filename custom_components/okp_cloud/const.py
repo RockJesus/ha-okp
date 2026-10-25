@@ -3,7 +3,7 @@
 from homeassistant.const import Platform
 
 DOMAIN = "okp_cloud"
-PLATFORMS = [Platform.VACUUM]
+PLATFORMS = [Platform.VACUUM, Platform.SENSOR]
 
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
@@ -59,3 +59,7 @@ MODE_RANDOM = "random"
 MODE_WALL_FOLLOW = "wall_follow"
 MODE_SPIRAL = "spiral"
 MODE_LIST = [MODE_SMART, MODE_RANDOM, MODE_WALL_FOLLOW, MODE_SPIRAL]
+
+# Mode <-> CoolKit dp mapping (shared by vacuum platform and sensors)
+MODE_TO_VALUE = {MODE_SMART: 0, MODE_RANDOM: 1, MODE_WALL_FOLLOW: 2, MODE_SPIRAL: 3}
+VALUE_TO_MODE = {v: k for k, v in MODE_TO_VALUE.items()}

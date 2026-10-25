@@ -30,6 +30,38 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    async def _validate_login(self, account: str, password: str) -> tuple[OkpApi, str, dict] | None:
+        """Login to the OKP cloud and fetch the first vacuum device.
+
+        Returns (api, home_id, device) or None when no vacuum device is found.
+        Raises OkpAuthError / OkpApiError / aiohttp.ClientError on failure.
+        """
+        # Use HA's shared client session (managed by HA, never closed here).
+        session = async_get_clientsession(self.hass)
+        api = OkpApi(session)
+        await api.login(account, password)
+        home_id = await api.get_home_id()
+        devices = await api.get_devices(home_id)
+        device = next((dev for dev in devices if dev.get("third_dev_id")), None)
+        if device is None:
+            return None
+        return api, home_id, device
+
+    def _entry_data(self, api: OkpApi, home_id: str, device: dict, account: str, password: str) -> dict[str, Any]:
+        """Build a minimal, privacy-aware config entry payload."""
+        return {
+            CONF_ACCOUNT: account,
+            CONF_PASSWORD: password,
+            "user_id": api.user_id,
+            "access_token": api.access_token,
+            "home_id": home_id,
+            "device_id": str(device.get("id")),
+            "device_name": device.get("name"),
+            "third_dev_id": device.get("third_dev_id"),
+            "product_id": device.get("third_product_id_tuya"),
+            "model": device.get("device_model_name"),
+        }
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -37,40 +69,17 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             account = user_input[CONF_ACCOUNT].strip()
             password = user_input[CONF_PASSWORD]
-            # Use HA's shared client session (managed by HA, never closed here).
-            session = async_get_clientsession(self.hass)
-            api = OkpApi(session)
             try:
-                await api.login(account, password)
-                home_id = await api.get_home_id()
-                devices = await api.get_devices(home_id)
-                detail = None
-                device = None
-                for dev in devices:
-                    if dev.get("third_dev_id"):
-                        device = dev
-                        detail = await api.get_device_detail(home_id, str(dev.get("id")))
-                        break
-                if device is None:
+                result = await self._validate_login(account, password)
+                if result is None:
                     errors["base"] = "no_device"
                 else:
+                    api, home_id, device = result
                     await self.async_set_unique_id(f"okp-{account}")
                     self._abort_if_unique_id_configured()
                     return self.async_create_entry(
                         title=f"OKP {device.get('name', '扫地机器人')}",
-                        data={
-                            CONF_ACCOUNT: account,
-                            CONF_PASSWORD: password,
-                            "user_id": api.user_id,
-                            "access_token": api.access_token,
-                            "home_id": home_id,
-                            "device_id": str(device.get("id")),
-                            "device_name": device.get("name"),
-                            "third_dev_id": device.get("third_dev_id"),
-                            "product_id": device.get("third_product_id_tuya"),
-                            "model": device.get("device_model_name"),
-                            "detail": detail or {},
-                        },
+                        data=self._entry_data(api, home_id, device, account, password),
                     )
             except OkpAuthError:
                 errors["base"] = "invalid_auth"
@@ -90,9 +99,70 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_user(user_input)
+        """Re-authenticate an existing entry (e.g. after token expiry)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            account = user_input[CONF_ACCOUNT].strip()
+            password = user_input[CONF_PASSWORD]
+            try:
+                result = await self._validate_login(account, password)
+                if result is None:
+                    errors["base"] = "no_device"
+                else:
+                    api, home_id, device = result
+                    entry = self._get_reauth_entry()
+                    new_data = {
+                        **entry.data,
+                        CONF_PASSWORD: password,
+                        "access_token": api.access_token,
+                        "user_id": api.user_id,
+                    }
+                    self.hass.config_entries.async_update_entry(entry, data=new_data)
+                    return self.async_abort(reason="reauth_successful")
+            except OkpAuthError:
+                errors["base"] = "invalid_auth"
+            except OkpApiError as err:
+                _LOGGER.warning("OKP API error during reauth: %s", err)
+                errors["base"] = "cannot_connect"
+            except aiohttp.ClientError as err:
+                _LOGGER.warning("OKP network error during reauth: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="reauth",
+            data_schema=DATA_SCHEMA,
+            errors=errors,
+        )
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_user(user_input)
+        """Reconfigure an existing entry (change account/password)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            account = user_input[CONF_ACCOUNT].strip()
+            password = user_input[CONF_PASSWORD]
+            try:
+                result = await self._validate_login(account, password)
+                if result is None:
+                    errors["base"] = "no_device"
+                else:
+                    api, home_id, device = result
+                    entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+                    new_data = self._entry_data(api, home_id, device, account, password)
+                    self.hass.config_entries.async_update_entry(entry, data=new_data)
+                    return self.async_abort(reason="reconfigure_successful")
+            except OkpAuthError:
+                errors["base"] = "invalid_auth"
+            except OkpApiError as err:
+                _LOGGER.warning("OKP API error during reconfigure: %s", err)
+                errors["base"] = "cannot_connect"
+            except aiohttp.ClientError as err:
+                _LOGGER.warning("OKP network error during reconfigure: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=DATA_SCHEMA,
+            errors=errors,
+        )

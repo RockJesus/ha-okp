@@ -35,7 +35,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_id = device_id
         self.account = account
         self.password = password
-        self._last_error: str | None = None
+        self.last_error: str | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -47,15 +47,15 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     await self.api.login(self.account, self.password)
                     item = await self.api.get_thing_state(self.device_id)
                 except (OkpApiError, OkpAuthError) as err:
-                    self._last_error = str(err)
+                    self.last_error = str(err)
                     raise UpdateFailed(str(err)) from err
             else:
-                self._last_error = "auth failed, re-login needed"
+                self.last_error = "auth failed, re-login needed"
                 raise UpdateFailed("auth failed, re-login needed")
         except OkpApiError as err:
-            self._last_error = str(err)
+            self.last_error = str(err)
             raise UpdateFailed(str(err)) from err
-        self._last_error = None
+        self.last_error = None
         return {
             "item": item,
             "params": item.get("params") or {},

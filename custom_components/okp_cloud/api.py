@@ -100,7 +100,11 @@ class OkpApi:
         except ValueError as err:
             raise OkpApiError(f"bad response from {url}: {err}") from err
         if isinstance(body, dict) and body.get("status") not in (None, 200):
-            raise OkpApiError(f"{body.get('status')}: {body.get('message') or body.get('msg')}")
+            code = body.get("status")
+            msg = body.get("message") or body.get("msg") or "unknown"
+            if code in (40003, 401, 403):
+                raise OkpAuthError(f"{code}: {msg}")
+            raise OkpApiError(f"{code}: {msg}")
         return body
 
     # -- auth -------------------------------------------------------------
@@ -113,9 +117,11 @@ class OkpApi:
         )
         data = body.get("data") or {}
         self.access_token = data.get("access_token")
-        self.user_id = str(data.get("user_id"))
+        self.user_id = data.get("user_id")
         if not self.access_token:
             raise OkpAuthError("login succeeded but no access_token returned")
+        if self.user_id is not None:
+            self.user_id = str(self.user_id)
         return data
 
     async def get_home_id(self) -> str:

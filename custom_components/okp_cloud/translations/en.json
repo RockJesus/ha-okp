@@ -8,6 +8,22 @@
           "account": "Phone / Account",
           "password": "Password"
         }
+      },
+      "reauth": {
+        "title": "OKP Cloud Re-authentication",
+        "description": "The login token has expired. Re-enter your account and password to restore the connection.",
+        "data": {
+          "account": "Phone / Account",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "OKP Cloud Reconfigure",
+        "description": "Update the OKP cloud account and password.",
+        "data": {
+          "account": "Phone / Account",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -16,7 +32,22 @@
       "no_device": "No robot vacuum device found under this account"
     },
     "abort": {
-      "already_configured": "This account is already configured"
+      "already_configured": "This account is already configured",
+      "reauth_successful": "Re-authentication successful",
+      "reconfigure_successful": "Configuration updated"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "work_state": { "name": "Work state" },
+      "clean_mode": { "name": "Clean mode" },
+      "fault_code": { "name": "Fault code" },
+      "rssi": { "name": "Signal strength" },
+      "firmware_version": { "name": "Firmware version" },
+      "cleaning_area": { "name": "Cleaning area" },
+      "cleaning_times": { "name": "Cleaning times" },
+      "carpet_booster": { "name": "Carpet booster" },
+      "online": { "name": "Online" }
     }
   }
 }

@@ -1,59 +1,95 @@
-# OKP Cloud 扫地机器人（用户名密码登录版）
+<p align="center">
+  <img src="custom_components/okp_cloud/brand/logo.png" alt="OKP" width="128">
+</p>
 
-Home Assistant 自定义集成：通过 **OKP 云账号（用户名+密码）** 接入 OKP/乐帆（Lefant）扫地机器人（如 **OKP K5 Ultra**），无需本地密钥。
+# OKP 扫地机器人（OKP Cloud）
 
-## 功能
+[![GitHub Release](https://img.shields.io/github/v/release/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/releases/latest)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6+-%23049cdb?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![Last Commit](https://img.shields.io/github/last-commit/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/commits/main)
 
-- 用户名 + 密码登录 OKP 云（`api-cn.okplife.com`），自动完成签名（sign）
-- 自动发现账号下所有家庭与扫地机器人设备
-- 实时状态轮询（默认 30s）：电量、清扫状态、工作状态、故障码、信号强度、固件版本
-- 控制指令（通过 CoolKit 物联云）：
-  - 开始清扫 / 暂停 / 停止
-  - 回充（停止清扫后机器人自动回充）
-  - 吸力档位：安静 / 标准 / 强力
-- 已登录令牌自动缓存，CoolKit token 过期自动刷新
+通过 **OKP 云账号（用户名 + 密码）** 把 OKP / 乐帆（Lefant）扫地机器人（如 **OKP K5 Ultra**）接入 Home Assistant，无需本地密钥、无需第三方中转。
 
-## 安装
+## ✨ 功能
 
-1. 将 `custom_components/okp_cloud` 目录复制到 HA 的 `config/custom_components/` 下
-2. 重启 Home Assistant
-3. 「设置 → 设备与服务 → 添加集成」搜索 **OKP Cloud 扫地机器人**
-4. 输入 OKP App 的**手机号/账号**与**密码**，提交
+- 🔐 **用户名 + 密码登录** OKP 云（`api-cn.okplife.com`），自动完成请求签名与令牌管理
+- 🏠 自动发现账号下的家庭与扫地机器人设备
+- 📡 30s 状态轮询：电量、清扫状态、工作状态、故障码、信号强度、固件版本、清扫面积/次数
+- 🎮 完整控制：开始清扫 / 暂停 / 停止 / 回充 / 三档吸力（安静 · 标准 · 强力）
+- 🔄 CoolKit 令牌过期自动刷新、登录失效自动重登
+- 💾 云端离线时保留最后已知状态（实体永不 `unavailable`）
 
-## 实体
+## 📦 安装
+
+### 方式一：HACS（推荐）
+
+1. HACS → 「自定义仓库」→ 添加 `https://github.com/RockJesus/ha-okp`（类别：**集成**）
+2. 搜索并安装 **OKP Cloud 扫地机器人**
+3. 重启 Home Assistant
+
+### 方式二：手动安装
+
+1. 下载最新 [Release](https://github.com/RockJesus/ha-okp/releases/latest) 源码包
+2. 解压出 `custom_components/okp_cloud` 目录，放入 `config/custom_components/`
+3. 重启 Home Assistant
+
+## ⚙️ 配置
+
+「设置 → 设备与服务 → 添加集成」→ 搜索 **OKP 扫地机器人**，输入 OKP App 的**账号（手机号）**与**密码**，提交即自动完成登录、家庭与设备发现。
+
+后续若令牌失效可在集成上点「重新认证」，或「重新配置」更换账号。
+
+## 🧹 实体（设备：OKP K5 Ultra）
 
 | 实体 | 类型 | 说明 |
 | --- | --- | --- |
-| `vacuum.okp_xxx` | Vacuum | 扫地机主体（状态/电量/吸力/控制） |
+| `vacuum.okp_cloud_*` | 扫地机 | 清扫状态 / 电量 / 吸力档位 / 控制 |
+| `sensor.okp_cloud_*_work_state` | 传感器 | 工作状态（清扫/回充/暂停/待机） |
+| `sensor.okp_cloud_*_clean_mode` | 传感器 | 清扫模式（smart/random/wall_follow/spiral） |
+| `sensor.okp_cloud_*_rssi` | 传感器 | 信号强度（dBm，诊断） |
+| `sensor.okp_cloud_*_fault_code` | 传感器 | 故障码（诊断） |
+| `sensor.okp_cloud_*_firmware_version` | 传感器 | 固件版本（诊断） |
+| `sensor.okp_cloud_*_cleaning_area` | 传感器 | 清扫面积 |
+| `sensor.okp_cloud_*_cleaning_times` | 传感器 | 清扫次数 |
+| `sensor.okp_cloud_*_carpet_booster` | 传感器 | 地毯增压（诊断） |
+| `sensor.okp_cloud_*_online` | 传感器 | 在线状态（诊断） |
 
-状态属性包含：`work_state`、`clean_mode`（smart/random/wall_follow/spiral）、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online` 等。
+> 扫地机实体还附带扩展属性：`work_state`、`clean_mode`、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online`、`last_error`。
 
-## 支持设备
+## 🎛️ 支持设备
 
-- OKP K5 Ultra（实测，ThingClips 白标 / CoolKit 云）
+- **OKP K5 Ultra**（实测，CoolKit / ThingClips 云）
 - 其他 OKP / 乐帆云账号下的扫地机理论上兼容（协议相同）
 
-## 技术说明（协议逆向摘要）
-
-- 登录：`POST /v5/client/login-with-password`（`password` + `account`）
-- 签名：`MD5("client-id=971d3d280f96&timestamp=<毫秒>&key=okp0be4d645f610f19dc7418c7f473cc")`（从 APK `TokenInterceptor` 逆向）
-- 设备：`/v2/home/list` → `/v9/home/device-list` → `/v5/home/device-detail-info`
-- CoolKit：`/v1/coolkit/refresh-access-token` 换 `at`，`POST cn-apia.coolkit.cn/v2/device/thing` 查状态、`/v2/device/thing/update` 控制
-
-## 已知限制
-
-- 回充 = 停止清扫（CoolKit 无独立回充 dp）；若你的机型不回充，请抓包一次「回充」动作反馈后补充
-- 暂停 = 停止清扫（`sweep=0`），与 App 行为一致
-- 密码保存在 HA 配置存储（`.storage/`）中用于重新登录
-
-## 版本
+## 🔧 技术说明（协议逆向摘要）
 
 <details>
-<summary>更新日志</summary>
+<summary>点击展开</summary>
 
-- v1.0.3（2026-10-25）：按 HA 官方规范优化——新增品牌图（brand/icon+logo+dark×@2x）、translations/en.json、integration_type=hub、quality_scale=bronze、session 改由 HA 托管
-- v1.0.2（2026-10-25）：实体挂载到设备注册表设备（DeviceInfo，identifiers=third_dev_id），设备下可见扫地机
-- v1.0.1（2026-10-25）：修复 `VacuumEntityFeature.BATTERY` 在新版 HA 已移除导致的 vacuum 平台 setup 崩溃（登录成功但无实体）
+- 登录：`POST /v5/client/login-with-password`（`password` + `account`）
+- 签名：`MD5(client-id=...&timestamp=<ms>&key=...)`——自 APK `TokenInterceptor` 指令级逆向，43/43 个抓包请求复算命中
+- 设备：`/v2/home/list` → `/v9/home/device-list` → `/v5/home/device-detail-info`
+- 状态：`/v1/coolkit/refresh-access-token` 换取 CoolKit `at` → `POST cn-apia.coolkit.cn/v2/device/thing`
+- 控制：`POST cn-apia.coolkit.cn/v2/device/thing/update`
+
+</details>
+
+## ⚠️ 已知限制
+
+- **回充 = 停止清扫**（CoolKit 无独立回充 dp）；若你的机型不回充，请抓包一次「回充」动作反馈后补充
+- **暂停 = 停止清扫**（`sweep=0`），与 App 行为一致
+- 密码保存在 HA 配置存储（`.storage/`）中，用于重新登录与自动重登
+
+## 📝 更新日志
+
+<details>
+<summary>展开</summary>
+
+- v1.0.4（2026-10-25）：修复 reauth/reconfigure 误中断与 401/403 自动重登；新增诊断传感器实体（sensor 平台）；实体名称翻译全量（en / zh-Hans）
+- v1.0.3（2026-10-25）：品牌图（brand/）、translations/en.json、integration_type=hub、quality_scale=bronze、session 改由 HA 托管
+- v1.0.2（2026-10-25）：实体挂载到设备注册表设备（DeviceInfo）
+- v1.0.1（2026-10-25）：修复 `VacuumEntityFeature.BATTERY` 在新版 HA 已移除导致的 setup 崩溃
 - v1.0.0（2026-10-25）：首个云账号登录版
 
 </details>

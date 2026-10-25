@@ -21,11 +21,8 @@ from .const import (
     FAN_SPEED_LIST,
     FAN_STANDARD,
     FAN_STRONG,
-    MODE_LIST,
-    MODE_RANDOM,
-    MODE_SMART,
-    MODE_SPIRAL,
-    MODE_WALL_FOLLOW,
+    MODE_TO_VALUE,
+    VALUE_TO_MODE,
 )
 from .coordinator import OkpCoordinator
 
@@ -33,8 +30,6 @@ _LOGGER = logging.getLogger(__name__)
 
 FAN_SPEED_TO_WIND = {FAN_QUIET: 0, FAN_STANDARD: 1, FAN_STRONG: 2}
 WIND_TO_FAN_SPEED = {v: k for k, v in FAN_SPEED_TO_WIND.items()}
-MODE_TO_VALUE = {MODE_SMART: 0, MODE_RANDOM: 1, MODE_WALL_FOLLOW: 2, MODE_SPIRAL: 3}
-VALUE_TO_MODE = {v: k for k, v in MODE_TO_VALUE.items()}
 
 
 def _clean_state(params: dict[str, Any]) -> str:
@@ -48,6 +43,14 @@ def _clean_state(params: dict[str, Any]) -> str:
     if wstate in (2, "2"):
         return "paused"
     return "idle"
+
+
+def _as_int(value: Any) -> int | None:
+    """Coerce a CoolKit dp value to int, tolerating str/int differences."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 async def async_setup_entry(
@@ -104,7 +107,16 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             | VacuumEntityFeature.STATUS
         )
         self._attr_fan_speed_list = FAN_SPEED_LIST
-        self._attr_available = True
+
+    @property
+    def available(self) -> bool:
+        """Always available: keep the last known state during outages.
+
+        The vacuum reports battery/state from cached data, so we deliberately
+        stay available (never unavailable/unknown) instead of tracking the
+        coordinator's last_update_success.
+        """
+        return True
 
     @property
     def _params(self) -> dict[str, Any]:
@@ -116,26 +128,18 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
 
     @property
     def battery_level(self) -> int | None:
-        power = self._params.get("power")
-        try:
-            return int(power)
-        except (TypeError, ValueError):
-            return None
+        return _as_int(self._params.get("power"))
 
     @property
     def fan_speed(self) -> str | None:
-        wind = self._params.get("wind")
-        try:
-            return WIND_TO_FAN_SPEED.get(int(wind))
-        except (TypeError, ValueError):
-            return None
+        return WIND_TO_FAN_SPEED.get(_as_int(self._params.get("wind")))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         p = self._params
         attrs: dict[str, Any] = {
             "work_state": p.get("wstate"),
-            "clean_mode": VALUE_TO_MODE.get(p.get("mode", 0), p.get("mode")),
+            "clean_mode": VALUE_TO_MODE.get(_as_int(p.get("mode")), p.get("mode")),
             "sweep_switch": p.get("sweep"),
             "power_switch": p.get("switch"),
             "fault_code": p.get("fault"),
@@ -148,8 +152,8 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
         }
         if self.coordinator.data:
             attrs["device_key"] = self.coordinator.data.get("devicekey")
-        if getattr(self.coordinator, "_last_error", None):
-            attrs["last_error"] = self.coordinator._last_error
+        if getattr(self.coordinator, "last_error", None):
+            attrs["last_error"] = self.coordinator.last_error
         return attrs
 
     # -- control -----------------------------------------------------------
