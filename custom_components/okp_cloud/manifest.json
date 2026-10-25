@@ -1,6 +1,6 @@
 {
   "domain": "okp_cloud",
-  "name": "OKP Cloud 扫地机器人",
+  "name": "OKP 扫地机器人",
   "codeowners": ["@RockJesus"],
   "config_flow": true,
   "dependencies": [],
@@ -10,7 +10,8 @@
   "ssdp": [],
   "zeroconf": [],
   "homeassistant": "2024.6.0",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "iot_class": "cloud_polling",
-  "integration_type": "device"
+  "integration_type": "hub",
+  "quality_scale": "bronze"
 }

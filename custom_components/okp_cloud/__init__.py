@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import logging
 
-import aiohttp
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi
 from .const import CONF_ACCOUNT, CONF_PASSWORD, DOMAIN, PLATFORMS
@@ -18,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OKP Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    session = aiohttp.ClientSession()
+    session = async_create_clientsession(hass)
     api = OkpApi(session)
     api.access_token = entry.data.get("access_token")
     api.user_id = entry.data.get("user_id")

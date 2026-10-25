@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import CONF_ACCOUNT, DOMAIN
@@ -36,7 +37,8 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             account = user_input[CONF_ACCOUNT].strip()
             password = user_input[CONF_PASSWORD]
-            session = aiohttp.ClientSession()
+            # Use HA's shared client session (managed by HA, never closed here).
+            session = async_get_clientsession(self.hass)
             api = OkpApi(session)
             try:
                 await api.login(account, password)
@@ -78,8 +80,6 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             except aiohttp.ClientError as err:
                 _LOGGER.warning("OKP network error during setup: %s", err)
                 errors["base"] = "cannot_connect"
-            finally:
-                await session.close()
 
         return self.async_show_form(
             step_id="user",
