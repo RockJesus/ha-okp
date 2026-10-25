@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "OKP 云账号登录",
+        "description": "输入 OKP 扫地机器人 App（优智OKP/云智OKP）的账号密码。",
+        "data": {
+          "account": "手机号/账号",
+          "password": "密码"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "无法连接 OKP 服务器，请检查网络后重试",
+      "invalid_auth": "账号或密码错误",
+      "no_device": "账号下没有找到扫地机器人设备"
+    },
+    "abort": {
+      "already_configured": "该账号已配置"
+    }
+  }
+}

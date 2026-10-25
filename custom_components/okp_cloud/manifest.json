@@ -1,0 +1,16 @@
+{
+  "domain": "okp_cloud",
+  "name": "OKP Cloud 扫地机器人",
+  "codeowners": ["@RockJesus"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/RockJesus/ha-okp",
+  "issue_tracker": "https://github.com/RockJesus/ha-okp/issues",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homeassistant": "2024.6.0",
+  "version": "1.0.0",
+  "iot_class": "cloud_polling",
+  "integration_type": "device"
+}
