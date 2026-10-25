@@ -48,4 +48,10 @@ Home Assistant 自定义集成：通过 **OKP 云账号（用户名+密码）** 
 
 ## 版本
 
+<details>
+<summary>更新日志</summary>
+
+- v1.0.1（2026-10-25）：修复 `VacuumEntityFeature.BATTERY` 在新版 HA 已移除导致的 vacuum 平台 setup 崩溃（登录成功但无实体）
 - v1.0.0（2026-10-25）：首个云账号登录版
+
+</details>

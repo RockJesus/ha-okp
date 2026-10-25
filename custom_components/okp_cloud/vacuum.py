@@ -88,7 +88,9 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             | VacuumEntityFeature.STOP
             | VacuumEntityFeature.RETURN_HOME
             | VacuumEntityFeature.FAN_SPEED
-            | VacuumEntityFeature.BATTERY
+            # BATTERY flag was removed in newer HA versions; battery_level is
+            # exposed via the property regardless of the feature flag.
+            | getattr(VacuumEntityFeature, "BATTERY", 0)
             | VacuumEntityFeature.STATE
             | VacuumEntityFeature.STATUS
         )
