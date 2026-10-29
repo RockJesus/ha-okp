@@ -150,6 +150,10 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             "carpet_booster": p.get("carpetBooster"),
             "online": self.coordinator.data.get("online") if self.coordinator.data else None,
         }
+        # Newer HA removed VacuumEntityFeature.BATTERY, so the framework no
+        # longer publishes battery_level to state attributes on its own.
+        # Expose it explicitly so frontend vacuum cards can still show it.
+        attrs["battery_level"] = self.battery_level
         if self.coordinator.data:
             attrs["device_key"] = self.coordinator.data.get("devicekey")
         if getattr(self.coordinator, "last_error", None):
