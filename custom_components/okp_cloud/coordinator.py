@@ -75,7 +75,11 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 None,
             )
             if entry:
-                await entry.async_start_reauth(self.hass)
+                started = entry.async_start_reauth(self.hass)
+                # async def on recent HA, sync no-op on older ones — await only
+                # when it actually returns an awaitable.
+                if hasattr(started, "__await__"):
+                    await started
                 _LOGGER.warning("OKP reauth flow started: %s", err)
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)

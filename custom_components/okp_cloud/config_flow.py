@@ -40,6 +40,10 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         session = async_get_clientsession(self.hass)
         api = OkpApi(session)
         await api.login(account, password)
+        # Immediately exchange the OKP access token for a long-lived CoolKit
+        # token (multi-client, shares the cloud session without kicking the
+        # phone app). Store it so HA restarts never need the OKP login again.
+        await api.refresh_coolkit_token()
         home_id = await api.get_home_id()
         devices = await api.get_devices(home_id)
         device = next((dev for dev in devices if dev.get("third_dev_id")), None)
