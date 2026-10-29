@@ -38,6 +38,9 @@ class OkpMapCamera(CoordinatorEntity[OkpCoordinator], Camera):
         model: str | None,
     ) -> None:
         super().__init__(coordinator)
+        # CoordinatorEntity.__init__ does not chain to Camera.__init__,
+        # which is required for provider attributes (_webrtc_provider etc).
+        Camera.__init__(self)
         self._attr_unique_id = f"{DOMAIN}_{device_id}_map"
         self._attr_supported_features = getattr(CameraEntityFeature, "ON_OFF", 0)
         self._attr_device_info = DeviceInfo(
