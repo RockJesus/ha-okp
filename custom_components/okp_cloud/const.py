@@ -29,6 +29,12 @@ CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 # Map refresh
 MAP_REFRESH_MINUTES = 30
 MAP_HISTORY_NUM = 3
+# History endpoint is lightweight; probe it at most every 5 minutes.
+MAP_CHECK_SECONDS = 300
+# After a failed re-login, back off 15 minutes instead of hammering the
+# login endpoint every poll cycle (login storms can trip account risk
+# control and break the phone app session).
+RELOGIN_COOLDOWN_SECONDS = 900
 
 # Signing
 SIGN_CLIENT_ID = "971d3d280f96"
