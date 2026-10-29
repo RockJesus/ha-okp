@@ -86,7 +86,9 @@ class OkpApi:
         if isinstance(body, dict) and body.get("status") not in (None, 200):
             code = body.get("status")
             msg = body.get("message") or body.get("msg") or "unknown"
-            if code in (40003, 401, 403):
+            # 4001 = "请先登录" (access token expired/invalid) -> treat as auth
+            # error so the coordinator re-logins instead of getting stuck.
+            if code in (4001, 40003, 401, 403):
                 raise OkpAuthError(f"{code}: {msg}")
             raise OkpApiError(f"{code}: {msg}")
         return body
@@ -103,7 +105,7 @@ class OkpApi:
         if isinstance(body, dict) and body.get("status") not in (None, 200):
             code = body.get("status")
             msg = body.get("message") or body.get("msg") or "unknown"
-            if code in (40003, 401, 403):
+            if code in (4001, 40003, 401, 403):
                 raise OkpAuthError(f"{code}: {msg}")
             raise OkpApiError(f"{code}: {msg}")
         return body
