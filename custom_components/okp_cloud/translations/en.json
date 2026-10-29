@@ -48,7 +48,19 @@
       "cleaning_times": { "name": "Cleaning times" },
       "carpet_booster": { "name": "Carpet booster" },
       "battery": { "name": "Battery" },
-      "online": { "name": "Online" }
+      "online": { "name": "Online" },
+      "dp31": { "name": "Data point dp31" },
+      "last_clean_start": { "name": "Last clean start" },
+      "last_clean_end": { "name": "Last clean end" },
+      "ui_active": { "name": "UI active" },
+      "call": { "name": "Call count" },
+      "timers": { "name": "Timers" }
+    },
+    "select": {
+      "clean_mode": { "name": "Clean mode" }
+    },
+    "switch": {
+      "carpet_booster": { "name": "Carpet booster" }
     },
     "camera": {
       "map": { "name": "Cleaning map" }

@@ -36,6 +36,15 @@ def _str(value: Any) -> str | None:
     return str(value)
 
 
+def _timers(params: dict[str, Any]) -> str | None:
+    """Summarise CoolKit scheduled cleaning timers."""
+    timers = params.get("timers")
+    if not isinstance(timers, list):
+        return None
+    enabled = sum(1 for t in timers if t.get("enabled"))
+    return f"{len(timers)} timers, {enabled} enabled"
+
+
 SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass | None, str | None, bool]] = [
     # (key, value_fn, icon, device_class, unit, entity_category_diagnostic)
     ("work_state", lambda p: p.get("wstate"), "mdi:state-machine", None, None, False),
@@ -45,9 +54,16 @@ SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass
     ("firmware_version", lambda p: _str(p.get("fwVersion")), "mdi:chip", None, None, True),
     ("cleaning_area", lambda p: _str(p.get("cleaningArea")), "mdi:ruler-square", None, None, False),
     ("cleaning_times", lambda p: _int(p.get("cleaningTimes")), "mdi:counter", None, None, False),
-    ("carpet_booster", lambda p: _int(p.get("carpetBooster")), "mdi:layers", None, None, True),
+    ("carpet_booster", lambda p: p.get("carpetBooster"), "mdi:layers", None, None, True),
     # CoolKit "power" dp carries the battery percentage (0-100).
     ("battery", lambda p: _int(p.get("power")), "mdi:battery", SensorDeviceClass.BATTERY, "%", False),
+    # Additional device data points (diagnostic).
+    ("dp31", lambda p: p.get("dp31"), "mdi:orbit", None, None, True),
+    ("last_clean_start", lambda p: _str(p.get("startUpload")), "mdi:play-clock", None, None, True),
+    ("last_clean_end", lambda p: _str(p.get("endUpload")), "mdi:clock-end", None, None, True),
+    ("ui_active", lambda p: _int(p.get("uiActive")), "mdi:timer-outline", None, None, True),
+    ("call", lambda p: _int(p.get("call")), "mdi:phone-alert", None, None, True),
+    ("timers", _timers, "mdi:calendar-clock", None, None, True),
 ]
 
 

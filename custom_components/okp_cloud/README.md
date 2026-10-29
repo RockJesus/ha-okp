@@ -15,9 +15,10 @@
 
 - 🔐 **用户名 + 密码登录** OKP 云（`api-cn.okplife.com`），自动完成请求签名与令牌管理
 - 🏠 自动发现账号下的家庭与扫地机器人设备
-- 📡 30s 状态轮询：电量、清扫状态、工作状态、故障码、信号强度、固件版本、清扫面积/次数
-- 🎮 完整控制：开始清扫 / 暂停 / 停止 / 回充 / 三档吸力（安静 · 标准 · 强力）
-- 🔄 CoolKit 令牌过期自动刷新、登录失效自动重登
+- 📡 3 分钟状态轮询：电量、清扫状态、工作状态、故障码、信号强度、固件版本、清扫面积/次数、定时任务摘要等
+- 🎮 完整控制：开始清扫 / 暂停 / 停止 / 回充 / 三档吸力（安静 · 标准 · 强力）/ 清扫模式（智能 · 随机 · 沿墙 · 螺旋）/ 地毯增压开关
+- 🗺️ 清扫地图（camera 实体，PNG 渲染，5 分钟探测 / 30 分钟自动刷新）
+- 🔄 CoolKit 令牌过期自动静默刷新；**不自动密码重登**（OKP 云单会话，重登会顶掉手机 App）——令牌彻底失效时自动弹窗重新认证
 - 💾 云端离线时保留最后已知状态（实体永不 `unavailable`）
 
 ## 📦 安装
@@ -45,6 +46,8 @@
 | 实体 | 类型 | 说明 |
 | --- | --- | --- |
 | `vacuum.okp_cloud_*` | 扫地机 | 清扫状态 / 电量 / 吸力档位 / 控制 |
+| `select.okp_cloud_*_mode` | 选择器 | 清扫模式（智能/随机/沿墙/螺旋，可控制） |
+| `switch.okp_cloud_*_carpet_booster` | 开关 | 地毯增压（可控制） |
 | `sensor.okp_cloud_*_work_state` | 传感器 | 工作状态（清扫/回充/暂停/待机） |
 | `sensor.okp_cloud_*_clean_mode` | 传感器 | 清扫模式（smart/random/wall_follow/spiral） |
 | `sensor.okp_cloud_*_rssi` | 传感器 | 信号强度（dBm，诊断） |
@@ -52,8 +55,16 @@
 | `sensor.okp_cloud_*_firmware_version` | 传感器 | 固件版本（诊断） |
 | `sensor.okp_cloud_*_cleaning_area` | 传感器 | 清扫面积 |
 | `sensor.okp_cloud_*_cleaning_times` | 传感器 | 清扫次数 |
-| `sensor.okp_cloud_*_carpet_booster` | 传感器 | 地毯增压（诊断） |
+| `sensor.okp_cloud_*_battery` | 传感器 | 电量（%） |
+| `sensor.okp_cloud_*_dp31` | 传感器 | 数据点 dp31（诊断） |
+| `sensor.okp_cloud_*_last_clean_start` | 传感器 | 上次清扫开始（诊断） |
+| `sensor.okp_cloud_*_last_clean_end` | 传感器 | 上次清扫结束（诊断） |
+| `sensor.okp_cloud_*_ui_active` | 传感器 | 界面活跃值（诊断） |
+| `sensor.okp_cloud_*_call` | 传感器 | 呼叫计数（诊断） |
+| `sensor.okp_cloud_*_timers` | 传感器 | 定时任务摘要（诊断） |
 | `sensor.okp_cloud_*_online` | 传感器 | 在线状态（诊断） |
+| `camera.okp_cloud_*_cleaning_map` | 摄像头 | 清扫地图（PNG 渲染） |
+| `update.okp_cloud_*_update` | 更新 | 集成版本更新 |
 
 > 扫地机实体还附带扩展属性：`work_state`、`clean_mode`、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online`、`last_error`。
 
@@ -79,13 +90,14 @@
 
 - **回充 = 停止清扫**（CoolKit 无独立回充 dp）；若你的机型不回充，请抓包一次「回充」动作反馈后补充
 - **暂停 = 停止清扫**（`sweep=0`），与 App 行为一致
-- 密码保存在 HA 配置存储（`.storage/`）中，用于重新登录与自动重登
+- 密码保存在 HA 配置存储（`.storage/`）中，仅用于首次配置/重新认证时登录；运行中不使用密码
 
 ## 📝 更新日志
 
 <details>
 <summary>展开</summary>
 
+- v1.1.6（2026-10-29）：补齐未接入的实体与功能——新增清扫模式选择器（select，智能/随机/沿墙/螺旋）、地毯增压开关（switch）、6 个诊断传感器（数据点 dp31、上次清扫开始/结束、界面活跃值、呼叫计数、定时任务摘要）
 - v1.1.5（2026-10-29）：配置/重新认证时立即获取并保存长有效期 CoolKit 令牌（与手机 App 多端共存、不互顶），重启不再依赖 OKP 会话；修复自动重新认证流程在部分 HA 版本的兼容性
 - v1.1.4（2026-10-29）：令牌彻底失效时自动触发 HA 重新认证流程——HA 弹出重新认证窗口，输入账号密码即可恢复（仍不会自动用密码登录，不影响手机 App）
 - v1.1.3（2026-10-29）：设备状态轮询从 30 秒降为 3 分钟——OKP 云把同账号客户端视为唯一在线会话，进一步降低集成对云会话的占用，避免干扰手机 App

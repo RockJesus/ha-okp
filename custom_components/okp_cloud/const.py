@@ -3,7 +3,13 @@
 from homeassistant.const import Platform
 
 DOMAIN = "okp_cloud"
-PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.CAMERA]
+PLATFORMS = [
+    Platform.VACUUM,
+    Platform.SENSOR,
+    Platform.CAMERA,
+    Platform.SELECT,
+    Platform.SWITCH,
+]
 
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
