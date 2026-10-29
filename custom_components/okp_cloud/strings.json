@@ -39,22 +39,57 @@
   },
   "entity": {
     "sensor": {
-      "work_state": { "name": "工作状态" },
-      "clean_mode": { "name": "清扫模式" },
+      "work_state": {
+        "name": "工作状态",
+        "state": {
+          "1": "清扫中",
+          "2": "已暂停",
+          "3": "回充中",
+          "7": "空闲"
+        }
+      },
+      "clean_mode": {
+        "name": "清扫模式",
+        "state": {
+          "smart": "智能",
+          "random": "随机",
+          "wall_follow": "沿墙",
+          "spiral": "螺旋"
+        }
+      },
       "fault_code": { "name": "故障码" },
       "rssi": { "name": "信号强度" },
       "firmware_version": { "name": "固件版本" },
       "cleaning_area": { "name": "清扫面积" },
       "cleaning_times": { "name": "清扫次数" },
-      "carpet_booster": { "name": "地毯增压" },
+      "carpet_booster": {
+        "name": "地毯增压",
+        "state": {
+          "on": "开启",
+          "off": "关闭"
+        }
+      },
       "battery": { "name": "电量" },
-      "online": { "name": "在线状态" },
-      "dp31": { "name": "数据点 dp31" },
+      "online": {
+        "name": "在线状态",
+        "state": {
+          "online": "在线",
+          "offline": "离线"
+        }
+      },
+      "dp31": {
+        "name": "数据点 dp31",
+        "state": {
+          "on": "开启",
+          "off": "关闭"
+        }
+      },
       "last_clean_start": { "name": "上次清扫开始" },
       "last_clean_end": { "name": "上次清扫结束" },
       "ui_active": { "name": "界面活跃值" },
       "call": { "name": "呼叫计数" },
-      "timers": { "name": "定时任务" }
+      "timers": { "name": "启用的定时任务" },
+      "timers_total": { "name": "定时任务总数" }
     },
     "select": {
       "clean_mode": { "name": "清扫模式" }

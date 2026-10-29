@@ -39,22 +39,57 @@
   },
   "entity": {
     "sensor": {
-      "work_state": { "name": "Work state" },
-      "clean_mode": { "name": "Clean mode" },
+      "work_state": {
+        "name": "Work state",
+        "state": {
+          "1": "Cleaning",
+          "2": "Paused",
+          "3": "Returning to dock",
+          "7": "Idle"
+        }
+      },
+      "clean_mode": {
+        "name": "Clean mode",
+        "state": {
+          "smart": "Smart",
+          "random": "Random",
+          "wall_follow": "Wall follow",
+          "spiral": "Spiral"
+        }
+      },
       "fault_code": { "name": "Fault code" },
       "rssi": { "name": "Signal strength" },
       "firmware_version": { "name": "Firmware version" },
       "cleaning_area": { "name": "Cleaning area" },
       "cleaning_times": { "name": "Cleaning times" },
-      "carpet_booster": { "name": "Carpet booster" },
+      "carpet_booster": {
+        "name": "Carpet booster",
+        "state": {
+          "on": "On",
+          "off": "Off"
+        }
+      },
       "battery": { "name": "Battery" },
-      "online": { "name": "Online" },
-      "dp31": { "name": "Data point dp31" },
+      "online": {
+        "name": "Online",
+        "state": {
+          "online": "Online",
+          "offline": "Offline"
+        }
+      },
+      "dp31": {
+        "name": "Data point dp31",
+        "state": {
+          "on": "On",
+          "off": "Off"
+        }
+      },
       "last_clean_start": { "name": "Last clean start" },
       "last_clean_end": { "name": "Last clean end" },
       "ui_active": { "name": "UI active" },
       "call": { "name": "Call count" },
-      "timers": { "name": "Timers" }
+      "timers": { "name": "Enabled timers" },
+      "timers_total": { "name": "Total timers" }
     },
     "select": {
       "clean_mode": { "name": "Clean mode" }
