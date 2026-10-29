@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi
-from .const import CONF_ACCOUNT, CONF_PASSWORD, DOMAIN, PLATFORMS
+from .const import DOMAIN, PLATFORMS
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,13 +21,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api = OkpApi(session)
     api.access_token = entry.data.get("access_token")
     api.user_id = entry.data.get("user_id")
+    # Reuse a stored CoolKit token when available (avoids an extra refresh
+    # request on startup); it is renewed silently when expired.
+    api.coolkit_at = entry.data.get("coolkit_at")
+    if api.coolkit_at:
+        api.coolkit_at_expire = int(entry.data.get("coolkit_at_expire") or 0)
 
     coordinator = OkpCoordinator(
         hass,
         api,
         entry.data["third_dev_id"],
-        account=entry.data.get(CONF_ACCOUNT),
-        password=entry.data.get(CONF_PASSWORD),
     )
     await coordinator.async_config_entry_first_refresh()
 

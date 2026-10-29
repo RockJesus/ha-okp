@@ -51,7 +51,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.map_updated_at: float = 0.0
         self.map_error: str | None = None
         self._map_check_ts: float = 0.0
-        self._next_relogin_at: float = 0.0
+        self._next_retry_at: float = 0.0
 
     async def _async_refresh_map(self) -> None:
         """Fetch the newest cleaning run map (low frequency).
@@ -102,28 +102,23 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             item = await self.api.get_thing_state(self.device_id)
         except OkpAuthError:
-            # token expired / rejected: re-login once with stored credentials.
-            # Back off after a failed login so we never hammer the auth
-            # endpoint (login storms can trip cloud risk control and break
-            # the phone app session).
-            if time.time() < self._next_relogin_at:
-                self.last_error = "auth failed, retrying later"
+            # CoolKit token expired/rejected: silently refresh the CoolKit
+            # token using the stored OKP access token. This never calls the
+            # password login endpoint, so it cannot kick the phone app
+            # session (OKP cloud allows only one active session per account).
+            now = time.time()
+            if now < self._next_retry_at:
                 raise UpdateFailed("auth failed, retrying later") from None
-            if self.account and self.password:
-                try:
-                    await self.api.login(self.account, self.password)
-                    # Re-login also invalidates the CoolKit token; force a
-                    # fresh refresh so the retried thing request works.
-                    await self.api.refresh_coolkit_token()
-                    item = await self.api.get_thing_state(self.device_id)
-                except (OkpApiError, OkpAuthError) as err:
-                    self.last_error = str(err)
-                    self._next_relogin_at = time.time() + RELOGIN_COOLDOWN_SECONDS
-                    _LOGGER.warning("OKP re-login failed, backing off: %s", err)
-                    raise UpdateFailed(str(err)) from err
-            else:
-                self.last_error = "auth failed, re-login needed"
-                raise UpdateFailed("auth failed, re-login needed")
+            self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS
+            try:
+                await self.api.refresh_coolkit_token()
+                item = await self.api.get_thing_state(self.device_id)
+            except (OkpApiError, OkpAuthError) as err:
+                self.last_error = str(err)
+                _LOGGER.warning(
+                    "OKP auth failed, re-auth needed in Home Assistant: %s", err
+                )
+                raise UpdateFailed(str(err)) from err
         except OkpApiError as err:
             self.last_error = str(err)
             _LOGGER.warning("OKP state fetch failed: %s", err)

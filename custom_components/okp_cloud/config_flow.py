@@ -54,6 +54,11 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: password,
             "user_id": api.user_id,
             "access_token": api.access_token,
+            # Keep the CoolKit token so HA restarts reuse the same cloud
+            # session instead of logging in again (login kicks the phone
+            # app session on OKP's single-session cloud).
+            "coolkit_at": api.coolkit_at,
+            "coolkit_at_expire": api.coolkit_at_expire,
             "home_id": home_id,
             "device_id": str(device.get("id")),
             "device_name": device.get("name"),
@@ -116,6 +121,8 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                         CONF_PASSWORD: password,
                         "access_token": api.access_token,
                         "user_id": api.user_id,
+                        "coolkit_at": api.coolkit_at,
+                        "coolkit_at_expire": api.coolkit_at_expire,
                     }
                     self.hass.config_entries.async_update_entry(entry, data=new_data)
                     return self.async_abort(reason="reauth_successful")
