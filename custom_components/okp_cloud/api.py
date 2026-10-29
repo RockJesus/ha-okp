@@ -51,6 +51,7 @@ class OkpApi:
         self.coolkit_apikey: str | None = None
         self.coolkit_at_expire: int = 0
         self.coolkit_region: str | None = None
+        self.coolkit_refreshed_at: float = 0.0
 
     # -- low level helpers ------------------------------------------------
 
@@ -164,9 +165,20 @@ class OkpApi:
         self.coolkit_region = data.get("region")
         expire = data.get("at_expire_at")
         self.coolkit_at_expire = int(expire) if expire else 0
+        self.coolkit_refreshed_at = time.time()
 
     async def ensure_coolkit_token(self) -> None:
-        if not self.coolkit_at or (self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300):
+        # Refresh when: no token, token within 5 min of expiry, or no expiry
+        # metadata returned (some endpoints omit at_expire_at) and the token
+        # is older than 12 hours. This is a safety net so a stale token never
+        # keeps polling 401 forever.
+        stale = (
+            not getattr(self, "coolkit_refreshed_at", 0)
+            or time.time() - self.coolkit_refreshed_at > 12 * 3600
+        )
+        if not self.coolkit_at or (
+            self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300
+        ) or (not self.coolkit_at_expire and stale):
             await self.refresh_coolkit_token()
 
     async def get_thing_state(self, device_id: str) -> dict:
@@ -189,7 +201,16 @@ class OkpApi:
         except aiohttp.ClientError as err:
             raise OkpApiError(f"coolkit network error: {err}") from err
         if body.get("error"):
-            raise OkpApiError(f"coolkit error {body.get('error')}: {body.get('msg')}")
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            # A 401/402/403 CoolKit response means the access token is stale
+            # or invalid. Clear it so the next call refreshes, and surface it
+            # as an auth error so the coordinator can re-login automatically.
+            if error in (401, 402, 403):
+                self.coolkit_at = None
+                self.coolkit_at_expire = 0
+                raise OkpAuthError(f"coolkit {error}: {msg}")
+            raise OkpApiError(f"coolkit error {error}: {msg}")
         things = ((body.get("data") or {}).get("thingList") or [])
         if not things:
             raise OkpApiError("coolkit returned no things")
@@ -216,4 +237,10 @@ class OkpApi:
         except aiohttp.ClientError as err:
             raise OkpApiError(f"coolkit update network error: {err}") from err
         if body.get("error"):
-            raise OkpApiError(f"coolkit update error {body.get('error')}: {body.get('msg')}")
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            if error in (401, 402, 403):
+                self.coolkit_at = None
+                self.coolkit_at_expire = 0
+                raise OkpAuthError(f"coolkit update {error}: {msg}")
+            raise OkpApiError(f"coolkit update error {error}: {msg}")

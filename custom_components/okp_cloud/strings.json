@@ -47,6 +47,7 @@
       "cleaning_area": { "name": "清扫面积" },
       "cleaning_times": { "name": "清扫次数" },
       "carpet_booster": { "name": "地毯增压" },
+      "battery": { "name": "电量" },
       "online": { "name": "在线状态" }
     }
   }

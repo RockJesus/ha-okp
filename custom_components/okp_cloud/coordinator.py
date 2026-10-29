@@ -45,15 +45,20 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.account and self.password:
                 try:
                     await self.api.login(self.account, self.password)
+                    # Re-login also invalidates the CoolKit token; force a
+                    # fresh refresh so the retried thing request works.
+                    await self.api.refresh_coolkit_token()
                     item = await self.api.get_thing_state(self.device_id)
                 except (OkpApiError, OkpAuthError) as err:
                     self.last_error = str(err)
+                    _LOGGER.warning("OKP re-login failed: %s", err)
                     raise UpdateFailed(str(err)) from err
             else:
                 self.last_error = "auth failed, re-login needed"
                 raise UpdateFailed("auth failed, re-login needed")
         except OkpApiError as err:
             self.last_error = str(err)
+            _LOGGER.warning("OKP state fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err
         self.last_error = None
         return {

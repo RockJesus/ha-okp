@@ -46,6 +46,8 @@ SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass
     ("cleaning_area", lambda p: _str(p.get("cleaningArea")), "mdi:ruler-square", None, None, False),
     ("cleaning_times", lambda p: _int(p.get("cleaningTimes")), "mdi:counter", None, None, False),
     ("carpet_booster", lambda p: _int(p.get("carpetBooster")), "mdi:layers", None, None, True),
+    # CoolKit "power" dp carries the battery percentage (0-100).
+    ("battery", lambda p: _int(p.get("power")), "mdi:battery", SensorDeviceClass.BATTERY, "%", False),
 ]
 
 

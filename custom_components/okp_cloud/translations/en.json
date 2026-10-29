@@ -47,6 +47,7 @@
       "cleaning_area": { "name": "Cleaning area" },
       "cleaning_times": { "name": "Cleaning times" },
       "carpet_booster": { "name": "Carpet booster" },
+      "battery": { "name": "Battery" },
       "online": { "name": "Online" }
     }
   }
