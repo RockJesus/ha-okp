@@ -49,6 +49,9 @@
       "carpet_booster": { "name": "地毯增压" },
       "battery": { "name": "电量" },
       "online": { "name": "在线状态" }
+    },
+    "camera": {
+      "map": { "name": "清扫地图" }
     }
   }
 }

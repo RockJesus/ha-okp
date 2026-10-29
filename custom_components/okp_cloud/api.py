@@ -13,6 +13,8 @@ from .const import (
     CK_APP_ID,
     CK_BASE,
     CK_DOMAIN,
+    CK_ENDPOINT_SWEEP_HISTORY,
+    CK_ENDPOINT_SWEEP_MAP,
     CK_ENDPOINT_THING,
     CK_ENDPOINT_THING_UPDATE,
     ENDPOINT_CK_REFRESH,
@@ -246,3 +248,47 @@ class OkpApi:
                 self.coolkit_at_expire = 0
                 raise OkpAuthError(f"coolkit update {error}: {msg}")
             raise OkpApiError(f"coolkit update error {error}: {msg}")
+
+    # -- sweep map ----------------------------------------------------------
+
+    async def _ck_get(self, url: str) -> dict:
+        """CoolKit GET with bearer auth (map/history endpoints)."""
+        await self.ensure_coolkit_token()
+        headers = {
+            "authorization": f"Bearer {self.coolkit_at}",
+            "x-ck-appid": CK_APP_ID,
+            "domain-name": CK_DOMAIN,
+        }
+        try:
+            async with self._session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise OkpApiError(f"coolkit network error: {err}") from err
+        if body.get("error"):
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            # Map endpoints return 405 (NoSuchKey) while the map for a
+            # cleaning run is not ready yet - not an auth problem.
+            if error in (401, 402, 403):
+                self.coolkit_at = None
+                self.coolkit_at_expire = 0
+                raise OkpAuthError(f"coolkit {error}: {msg}")
+            raise OkpApiError(f"coolkit error {error}: {msg}")
+        return body
+
+    async def get_cleaning_history(self, device_id: str, num: int = 3) -> list[dict]:
+        """Return recent cleaning runs (each with a cleaningId)."""
+        now_us = int(time.time() * 1000000)
+        body = await self._ck_get(
+            f"{CK_BASE}{CK_ENDPOINT_SWEEP_HISTORY}"
+            f"?deviceid={device_id}&from={now_us}&num={num}"
+        )
+        return (body.get("data") or {}).get("histories") or []
+
+    async def get_cleaning_map(self, device_id: str, cleaning_id: str) -> list[str]:
+        """Return mapPaths for one cleaning run (grid points as strings)."""
+        body = await self._ck_get(
+            f"{CK_BASE}{CK_ENDPOINT_SWEEP_MAP}"
+            f"?deviceid={device_id}&id={cleaning_id}"
+        )
+        return (body.get("data") or {}).get("mapPaths") or []

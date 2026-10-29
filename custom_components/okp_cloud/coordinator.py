@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -9,7 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OkpApi, OkpApiError, OkpAuthError
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, MAP_HISTORY_NUM, MAP_REFRESH_MINUTES
+from .map_render import parse_map_paths, render_map_png
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +38,50 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.account = account
         self.password = password
         self.last_error: str | None = None
+        # Sweep map cache: PNG bytes + the cleaning run it belongs to.
+        self.map_image: bytes | None = None
+        self.map_cleaning_id: str | None = None
+        self.map_updated_at: float = 0.0
+        self.map_error: str | None = None
+
+    async def _async_refresh_map(self) -> None:
+        """Fetch the newest cleaning run map (low frequency).
+
+        Runs on a 30-minute schedule and whenever the latest cleaningId
+        changes. Failures are logged and never block the main poll cycle.
+        """
+        try:
+            histories = await self.api.get_cleaning_history(self.device_id, MAP_HISTORY_NUM)
+            latest = None
+            for h in histories:
+                cid = h.get("cleaningId")
+                if cid:
+                    latest = cid
+                    break
+            if not latest:
+                return
+            due = latest != self.map_cleaning_id or (
+                time.time() - self.map_updated_at > MAP_REFRESH_MINUTES * 60
+            )
+            if not due:
+                return
+            paths = await self.api.get_cleaning_map(self.device_id, latest)
+            if not paths:
+                self.map_error = "no map data for latest cleaning"
+                return
+            points = parse_map_paths(paths)
+            if not points:
+                self.map_error = "map data empty"
+                return
+            self.map_image = render_map_png(points)
+            self.map_cleaning_id = latest
+            self.map_updated_at = time.time()
+            self.map_error = None
+            _LOGGER.debug("OKP map updated: %s (%d points)", latest, len(points))
+        except (OkpApiError, OkpAuthError) as err:
+            # Keep the previous image; retry next cycle.
+            self.map_error = str(err)
+            _LOGGER.warning("OKP map refresh failed: %s", err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -61,6 +107,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("OKP state fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err
         self.last_error = None
+        await self._async_refresh_map()
         return {
             "item": item,
             "params": item.get("params") or {},

@@ -49,6 +49,9 @@
       "carpet_booster": { "name": "Carpet booster" },
       "battery": { "name": "Battery" },
       "online": { "name": "Online" }
+    },
+    "camera": {
+      "map": { "name": "Cleaning map" }
     }
   }
 }

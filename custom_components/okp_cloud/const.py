@@ -3,7 +3,7 @@
 from homeassistant.const import Platform
 
 DOMAIN = "okp_cloud"
-PLATFORMS = [Platform.VACUUM, Platform.SENSOR]
+PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.CAMERA]
 
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
@@ -21,8 +21,14 @@ ENDPOINT_CK_REFRESH = "/v1/coolkit/refresh-access-token"
 CK_BASE = "https://cn-apia.coolkit.cn"
 CK_ENDPOINT_THING = "/v2/device/thing"
 CK_ENDPOINT_THING_UPDATE = "/v2/device/thing/update"
+CK_ENDPOINT_SWEEP_HISTORY = "/v2/device/sweep-robot-cleanning-history"
+CK_ENDPOINT_SWEEP_MAP = "/v2/device/sweep-robot-cleanning-map"
 CK_APP_ID = "fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z"  # x-ck-appid (OKP app)
 CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
+
+# Map refresh
+MAP_REFRESH_MINUTES = 30
+MAP_HISTORY_NUM = 3
 
 # Signing
 SIGN_CLIENT_ID = "971d3d280f96"
