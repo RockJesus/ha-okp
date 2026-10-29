@@ -52,6 +52,33 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.map_error: str | None = None
         self._map_check_ts: float = 0.0
         self._next_retry_at: float = 0.0
+        # Whether a reauth prompt has already been requested for this load.
+        self._reauth_requested = False
+
+    async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
+        """Ask Home Assistant to start the reauth flow (user enters password).
+
+        This is a standard HA reauth prompt — the integration never calls the
+        password login endpoint by itself, so it can't kick the phone app
+        session. Triggered at most once per coordinator load.
+        """
+        if self._reauth_requested:
+            return
+        self._reauth_requested = True
+        try:
+            entry = next(
+                (
+                    e
+                    for e in self.hass.config_entries.async_entries(DOMAIN)
+                    if not e.disabled_by
+                ),
+                None,
+            )
+            if entry:
+                await entry.async_start_reauth(self.hass)
+                _LOGGER.warning("OKP reauth flow started: %s", err)
+        except Exception as exc:  # noqa: BLE001 - reauth is best-effort
+            _LOGGER.warning("OKP could not start reauth flow: %s", exc)
 
     async def _async_refresh_map(self) -> None:
         """Fetch the newest cleaning run map (low frequency).
@@ -118,6 +145,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning(
                     "OKP auth failed, re-auth needed in Home Assistant: %s", err
                 )
+                await self._maybe_trigger_reauth(err)
                 raise UpdateFailed(str(err)) from err
         except OkpApiError as err:
             self.last_error = str(err)
