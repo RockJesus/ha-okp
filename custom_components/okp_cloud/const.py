@@ -56,7 +56,10 @@ OKP_HEADERS = {
 }
 
 # Polling
-DEFAULT_SCAN_INTERVAL = 30
+# 3-minute polling: keeps the cloud session usage low. OKP cloud treats a
+# same-account client as the only active session, so heavy polling from the
+# integration must stay minimal to avoid interfering with the phone app.
+DEFAULT_SCAN_INTERVAL = 180
 COORD_DATA = "data"
 
 # Vacuum fan speeds (wind power gear)
