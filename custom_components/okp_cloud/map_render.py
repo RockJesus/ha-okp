@@ -121,8 +121,3 @@ def map_size(points: list[tuple[int, int, int]]) -> tuple[int, int, int, int]:
 def _serialize_map_paths(points: list[tuple[int, int, int]]) -> str:
     """Helper for diagnostics: re-serialize parsed points."""
     return ",".join(f"({x},{y},{t})" for x, y, t in points)
-
-
-def _any_extra_data(points: list[tuple[int, int, int]]) -> dict[str, Any]:
-    """Optional: reserved for future map metadata (rooms etc.)."""
-    return {}

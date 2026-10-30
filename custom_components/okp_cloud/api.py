@@ -54,6 +54,10 @@ class OkpApi:
         self.coolkit_at_expire: int = 0
         self.coolkit_region: str | None = None
         self.coolkit_refreshed_at: float = 0.0
+        # Cooldown for refresh *attempts*: after a failed refresh (network or
+        # auth), do not retry the OKP refresh endpoint more often than this
+        # to stay below the cloud's risk-control radar.
+        self._last_refresh_try: float = 0.0
 
     # -- low level helpers ------------------------------------------------
 
@@ -158,6 +162,7 @@ class OkpApi:
     # -- CoolKit -----------------------------------------------------------
 
     async def refresh_coolkit_token(self) -> None:
+        self._last_refresh_try = time.time()
         body = await self._get(f"{API_BASE}{ENDPOINT_CK_REFRESH}", auth=True)
         data = body.get("data") or {}
         at = data.get("at")
@@ -183,6 +188,12 @@ class OkpApi:
         if not self.coolkit_at or (
             self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300
         ) or (not self.coolkit_at_expire and stale):
+            # After the token was cleared (401/402/403) or is missing, a
+            # refresh may fail transiently; throttle repeated attempts so a
+            # down OKP network cannot cause a poll-every-3-minutes refresh
+            # storm against the cloud.
+            if time.time() - self._last_refresh_try < 300:
+                raise OkpApiError("coolkit token refresh throttled (recent attempt)")
             await self.refresh_coolkit_token()
 
     async def get_thing_state(self, device_id: str) -> dict:

@@ -1,7 +1,7 @@
 """Camera platform: shows the latest OKP sweep map as a PNG image."""
 from __future__ import annotations
 
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -42,7 +42,8 @@ class OkpMapCamera(CoordinatorEntity[OkpCoordinator], Camera):
         # which is required for provider attributes (_webrtc_provider etc).
         Camera.__init__(self)
         self._attr_unique_id = f"{DOMAIN}_{device_id}_map"
-        self._attr_supported_features = getattr(CameraEntityFeature, "ON_OFF", 0)
+        # No ON_OFF feature: this camera only serves the rendered map image
+        # (a toggle button without turn_on/turn_off would error in the UI).
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,

@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_PASSWORD, DOMAIN, PLATFORMS
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,6 +17,12 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OKP Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    # Migration (v1.1.8): entries created before this version may still hold
+    # a plain-text password in data; drop it now that the integration runs
+    # purely on the CoolKit token (login only happens transiently in flows).
+    if CONF_PASSWORD in entry.data:
+        entry.data = {k: v for k, v in entry.data.items() if k != CONF_PASSWORD}
+        hass.config_entries.async_update_entry(entry)
     session = async_create_clientsession(hass)
     api = OkpApi(session)
     api.access_token = entry.data.get("access_token")

@@ -51,11 +51,15 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             return None
         return api, home_id, device
 
-    def _entry_data(self, api: OkpApi, home_id: str, device: dict, account: str, password: str) -> dict[str, Any]:
+    def _entry_data(self, api: OkpApi, home_id: str, device: dict, account: str) -> dict[str, Any]:
         """Build a minimal, privacy-aware config entry payload."""
+        # Privacy: never persist the plain-text password. The integration
+        # runs in pure CoolKit-token mode and only needs it transiently
+        # for the login call during setup/reauth (OKP is a single-session
+        # cloud; keeping the password off disk also protects it from the
+        # HAOS .storage file being read over the LAN).
         return {
             CONF_ACCOUNT: account,
-            CONF_PASSWORD: password,
             "user_id": api.user_id,
             "access_token": api.access_token,
             # Keep the CoolKit token so HA restarts reuse the same cloud
@@ -88,7 +92,7 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     self._abort_if_unique_id_configured()
                     return self.async_create_entry(
                         title=f"OKP {device.get('name', '扫地机器人')}",
-                        data=self._entry_data(api, home_id, device, account, password),
+                        data=self._entry_data(api, home_id, device, account),
                     )
             except OkpAuthError:
                 errors["base"] = "invalid_auth"
@@ -105,11 +109,22 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    def _auth_schema(self, account: str = "") -> vol.Schema:
+        """Login form with the account prefilled for reauth/reconfigure."""
+        return vol.Schema(
+            {
+                vol.Required(CONF_ACCOUNT, default=account): cv.string,
+                vol.Required(CONF_PASSWORD, default=""): cv.string,
+            }
+        )
+
     async def async_step_reauth(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Re-authenticate an existing entry (e.g. after token expiry)."""
         errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        account = (entry.data.get(CONF_ACCOUNT) or "") if entry else ""
         if user_input is not None:
             account = user_input[CONF_ACCOUNT].strip()
             password = user_input[CONF_PASSWORD]
@@ -122,7 +137,6 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     entry = self._get_reauth_entry()
                     new_data = {
                         **entry.data,
-                        CONF_PASSWORD: password,
                         "access_token": api.access_token,
                         "user_id": api.user_id,
                         "coolkit_at": api.coolkit_at,
@@ -141,7 +155,7 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth",
-            data_schema=DATA_SCHEMA,
+            data_schema=self._auth_schema(account),
             errors=errors,
         )
 
@@ -150,6 +164,8 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Reconfigure an existing entry (change account/password)."""
         errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        account = (entry.data.get(CONF_ACCOUNT) or "") if entry else ""
         if user_input is not None:
             account = user_input[CONF_ACCOUNT].strip()
             password = user_input[CONF_PASSWORD]
@@ -174,6 +190,6 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=DATA_SCHEMA,
+            data_schema=self._auth_schema(account),
             errors=errors,
         )
