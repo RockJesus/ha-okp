@@ -20,9 +20,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Migration (v1.1.8): entries created before this version may still hold
     # a plain-text password in data; drop it now that the integration runs
     # purely on the CoolKit token (login only happens transiently in flows).
+    # NB: ConfigEntry.data is read-only on newer HA — always go through
+    # async_update_entry, never assign entry.data directly (raises
+    # "data cannot be changed directly" and aborts setup).
     if CONF_PASSWORD in entry.data:
-        entry.data = {k: v for k, v in entry.data.items() if k != CONF_PASSWORD}
-        hass.config_entries.async_update_entry(entry)
+        new_data = {k: v for k, v in entry.data.items() if k != CONF_PASSWORD}
+        hass.config_entries.async_update_entry(entry, data=new_data)
     session = async_create_clientsession(hass)
     api = OkpApi(session)
     api.access_token = entry.data.get("access_token")
