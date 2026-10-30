@@ -84,3 +84,29 @@ MODE_LIST = [MODE_SMART, MODE_RANDOM, MODE_WALL_FOLLOW, MODE_SPIRAL]
 # Mode <-> CoolKit dp mapping (shared by vacuum platform and sensors)
 MODE_TO_VALUE = {MODE_SMART: 0, MODE_RANDOM: 1, MODE_WALL_FOLLOW: 2, MODE_SPIRAL: 3}
 VALUE_TO_MODE = {v: k for k, v in MODE_TO_VALUE.items()}
+
+# Per-model dp semantics (verified on K5 Ultra). Other models may differ;
+# extend this table as devices are tested. The sensor/select/switch platforms
+# only create entities whose dp key is present in the device's thing payload.
+# sensor key -> required CoolKit dp key
+SENSOR_DP_REQUIREMENTS = {
+    "work_state": "wstate",
+    "clean_mode": "mode",
+    "fault_code": "fault",
+    "rssi": "rssi",
+    "firmware_version": "fwVersion",
+    "cleaning_area": "cleaningArea",
+    "cleaning_times": "cleaningTimes",
+    "carpet_booster": "carpetBooster",
+    "battery": "power",
+    "dp31": "dp31",
+    "last_clean_start": "startUpload",
+    "last_clean_end": "endUpload",
+    "ui_active": "uiActive",
+    "call": "call",
+    "timers": "timers",
+    "timers_total": "timers",
+}
+# select / switch platforms
+SELECT_REQUIRES_DP = "mode"
+SWITCH_REQUIRES_DP = "carpetBooster"

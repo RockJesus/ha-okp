@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OkpApi, OkpApiError
-from .const import DOMAIN
+from .const import DOMAIN, SWITCH_REQUIRES_DP
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,11 +24,27 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
-    coordinator: OkpCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    device_id = entry.data.get("third_dev_id") or entry.data.get("device_id")
-    name = entry.data.get("device_name") or "OKP 扫地机器人"
-    model = entry.data.get("model")
-    async_add_entities([OkpCarpetBoosterSwitch(coordinator, api, device_id, name, model)])
+    coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
+    entities = []
+    for dev in entry.data.get("devices", []):
+        third = dev.get("third_dev_id")
+        coordinator = coordinators.get(third)
+        if coordinator is None:
+            continue
+        # Capability filter: only models exposing carpetBooster get the switch.
+        params = (coordinator.data or {}).get("params") or {}
+        if params.keys() and SWITCH_REQUIRES_DP not in params:
+            continue
+        entities.append(
+            OkpCarpetBoosterSwitch(
+                coordinator,
+                api,
+                third,
+                dev.get("name") or "OKP 扫地机器人",
+                dev.get("model"),
+            )
+        )
+    async_add_entities(entities)
 
 
 class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):

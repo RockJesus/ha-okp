@@ -12,7 +12,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, VALUE_TO_MODE
+from .const import DOMAIN, SENSOR_DP_REQUIREMENTS, VALUE_TO_MODE
 from .coordinator import OkpCoordinator
 
 
@@ -94,15 +94,28 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: OkpCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    device_id = entry.data.get("third_dev_id") or entry.data.get("device_id")
-    name = entry.data.get("device_name") or "OKP 扫地机器人"
-    model = entry.data.get("model")
-    entities = [
-        OkpSensor(coordinator, device_id, name, model, key, value_fn, icon, device_class, unit, diagnostic)
-        for key, value_fn, icon, device_class, unit, diagnostic in SENSORS
-    ]
-    entities.append(OkpOnlineSensor(coordinator, device_id, name, model))
+    coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
+    entities = []
+    for dev in entry.data.get("devices", []):
+        third = dev.get("third_dev_id")
+        coordinator = coordinators.get(third)
+        if coordinator is None:
+            continue
+        name = dev.get("name") or "OKP 扫地机器人"
+        model = dev.get("model")
+        # Capability filter (v1.1.9): only create a sensor when the device's
+        # thing payload actually carries its dp key. No data yet -> create
+        # everything (values fall back to None/—).
+        params = (coordinator.data or {}).get("params") or {}
+        keys = set(params.keys())
+        for key, value_fn, icon, device_class, unit, diagnostic in SENSORS:
+            dp = SENSOR_DP_REQUIREMENTS.get(key)
+            if dp and keys and dp not in keys:
+                continue
+            entities.append(
+                OkpSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
+            )
+        entities.append(OkpOnlineSensor(coordinator, third, name, model))
     async_add_entities(entities)
 
 

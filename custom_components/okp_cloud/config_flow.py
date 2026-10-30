@@ -30,10 +30,12 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _validate_login(self, account: str, password: str) -> tuple[OkpApi, str, dict] | None:
-        """Login to the OKP cloud and fetch the first vacuum device.
+    async def _validate_login(
+        self, account: str, password: str
+    ) -> tuple[OkpApi, str, list[dict]] | None:
+        """Login to the OKP cloud and fetch all vacuum devices.
 
-        Returns (api, home_id, device) or None when no vacuum device is found.
+        Returns (api, home_id, devices) or None when no vacuum device is found.
         Raises OkpAuthError / OkpApiError / aiohttp.ClientError on failure.
         """
         # Use HA's shared client session (managed by HA, never closed here).
@@ -46,18 +48,39 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         await api.refresh_coolkit_token()
         home_id = await api.get_home_id()
         devices = await api.get_devices(home_id)
-        device = next((dev for dev in devices if dev.get("third_dev_id")), None)
-        if device is None:
+        # v1.1.9: support every robot vacuum under the account (all devices
+        # with a CoolKit third_dev_id), not just the first one.
+        devices = [dev for dev in devices if dev.get("third_dev_id")]
+        if not devices:
             return None
-        return api, home_id, device
+        return api, home_id, devices
 
-    def _entry_data(self, api: OkpApi, home_id: str, device: dict, account: str) -> dict[str, Any]:
-        """Build a minimal, privacy-aware config entry payload."""
+    def _entry_data(
+        self, api: OkpApi, home_id: str, devices: list[dict], account: str
+    ) -> dict[str, Any]:
+        """Build a minimal, privacy-aware config entry payload.
+
+        Keeps the flat first-device fields (device_id/third_dev_id/...) for
+        backward compatibility and stores the full `devices` list so every
+        robot under the account is managed by this single entry.
+        """
         # Privacy: never persist the plain-text password. The integration
         # runs in pure CoolKit-token mode and only needs it transiently
         # for the login call during setup/reauth (OKP is a single-session
         # cloud; keeping the password off disk also protects it from the
         # HAOS .storage file being read over the LAN).
+        first = devices[0]
+        device_list = []
+        for dev in devices:
+            entry = {
+                "id": str(dev.get("id")),
+                "name": dev.get("name"),
+                "third_dev_id": dev.get("third_dev_id"),
+                "product_id": dev.get("third_product_id_tuya"),
+                "model": dev.get("device_model_name"),
+            }
+            if entry not in device_list:
+                device_list.append(entry)
         return {
             CONF_ACCOUNT: account,
             "user_id": api.user_id,
@@ -68,11 +91,14 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             "coolkit_at": api.coolkit_at,
             "coolkit_at_expire": api.coolkit_at_expire,
             "home_id": home_id,
-            "device_id": str(device.get("id")),
-            "device_name": device.get("name"),
-            "third_dev_id": device.get("third_dev_id"),
-            "product_id": device.get("third_product_id_tuya"),
-            "model": device.get("device_model_name"),
+            # flat first-device fields (legacy)
+            "device_id": first.get("id"),
+            "device_name": first.get("name"),
+            "third_dev_id": first.get("third_dev_id"),
+            "product_id": first.get("third_product_id_tuya"),
+            "model": first.get("device_model_name"),
+            # all devices (v1.1.9+)
+            "devices": device_list,
         }
 
     async def async_step_user(
@@ -87,12 +113,20 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 if result is None:
                     errors["base"] = "no_device"
                 else:
-                    api, home_id, device = result
+                    api, home_id, devices = result
                     await self.async_set_unique_id(f"okp-{account}")
                     self._abort_if_unique_id_configured()
+                    names = "、".join(
+                        str(d.get("name")) for d in devices[:5] if d.get("name")
+                    )
+                    title = (
+                        f"OKP {names}"
+                        if len(devices) > 1
+                        else f"OKP {devices[0].get('name', '扫地机器人')}"
+                    )
                     return self.async_create_entry(
-                        title=f"OKP {device.get('name', '扫地机器人')}",
-                        data=self._entry_data(api, home_id, device, account),
+                        title=title,
+                        data=self._entry_data(api, home_id, devices, account),
                     )
             except OkpAuthError:
                 errors["base"] = "invalid_auth"
@@ -174,9 +208,10 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 if result is None:
                     errors["base"] = "no_device"
                 else:
-                    api, home_id, device = result
+                    api, home_id, devices = result
                     entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-                    new_data = self._entry_data(api, home_id, device, account, password)
+                    # Rebuild the full payload (token + device list).
+                    new_data = self._entry_data(api, home_id, devices, account)
                     self.hass.config_entries.async_update_entry(entry, data=new_data)
                     return self.async_abort(reason="reconfigure_successful")
             except OkpAuthError:

@@ -59,11 +59,23 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
-    coordinator: OkpCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    device_id = entry.data.get("third_dev_id") or entry.data.get("device_id")
-    name = entry.data.get("device_name") or "OKP 扫地机器人"
-    model = entry.data.get("model")
-    async_add_entities([OkpVacuum(coordinator, api, device_id, name, model)])
+    coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
+    entities: list[OkpVacuum] = []
+    for dev in entry.data.get("devices", []):
+        third = dev.get("third_dev_id")
+        coordinator = coordinators.get(third)
+        if coordinator is None:
+            continue
+        entities.append(
+            OkpVacuum(
+                coordinator,
+                api,
+                third,
+                dev.get("name") or "OKP 扫地机器人",
+                dev.get("model"),
+            )
+        )
+    async_add_entities(entities)
 
 
 class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
