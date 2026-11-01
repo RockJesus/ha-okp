@@ -94,6 +94,7 @@
 
 ## 📝 更新日志
 
+- v1.2.3（2026-11-01）：首次刷新失败不再让条目卡进 HA 的「重试设置」循环——令牌失效时应该弹一次重新认证，而不是持续重试把实体全部藏起来。现在首次取数失败只记一条 warning，平台照常加载，轮询继续尝试，连续 3 次认证失败后给出重新认证提示
 - v1.2.2（2026-11-01）：修复「集成每几小时就掉线并要求重新认证」——
   ① **只存了 `coolkit_at` 没存 `coolkit_rt`**：CoolKit 令牌过期后唯一的续期途径是 okplife 的 `/v1/coolkit/get-user-info`，而它依赖 OKP 登录令牌，该令牌几小时就过期且 okplife 没有 refresh 接口 → 整条链路死锁，只能人工重输密码。现在改走 CoolKit 自己的 `POST /v2/user/refresh`（body `{"rt":…}`），它与 OKP 登录令牌无关，会话可无限续期；okplife 仅作兜底。同时把 `at/rt/apikey/region` 全部持久化到配置条目，HA 重启不再丢会话（升级后首次启动会自动补抓一次 `rt`）；
   ② **重启时不再因缺少 `rt` 而反复失败**：`ensure_coolkit_token()` 先试 refresh token，失败才回退 okplife；刷新节流从 300s 降到 120s，且节流不再计入认证失败；
