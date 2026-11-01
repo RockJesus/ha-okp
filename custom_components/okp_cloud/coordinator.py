@@ -111,6 +111,17 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)
 
+    def async_persist_tokens(self, force: bool = False) -> None:
+        """Public wrapper used by the manual ``refresh_session`` service.
+
+        ``force`` ignores the de-duplication mark so a manually triggered
+        renewal is always written to the entry, even when the poll cycle
+        already persisted the same tokens.
+        """
+        if force:
+            self._token_persist_mark = None
+        self._persist_tokens()
+
     def _persist_tokens(self) -> None:
         """Write the CoolKit token pair back into the config entry.
 

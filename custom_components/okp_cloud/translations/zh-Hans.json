@@ -126,5 +126,11 @@
     "camera": {
       "map": { "name": "清扫地图" }
     }
+  },
+  "services": {
+    "refresh_session": {
+      "name": "手动续期云会话",
+      "description": "立即用保存的刷新令牌（rt）换取新的访问令牌，并返回结果。用于排查「集成掉线」或验证会话是否已不再依赖手机 App。"
+    }
   }
 }

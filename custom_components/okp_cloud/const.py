@@ -45,6 +45,12 @@ CK_ENDPOINT_USER_REFRESH = "/v2/user/refresh"
 CK_APP_ID = "fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z"  # x-ck-appid (OKP app)
 CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 
+# v1.2.9: on-demand session renewal service. Lets the user (and the release
+# verification) force the CoolKit ``rt`` path without waiting for the access
+# token to expire, which is the only way to prove the session is independent
+# of the phone app.
+SERVICE_REFRESH_SESSION = "refresh_session"
+
 # Map refresh
 MAP_REFRESH_MINUTES = 30
 MAP_HISTORY_NUM = 3

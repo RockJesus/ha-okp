@@ -1,0 +1,6 @@
+# Descriptions for the okp_cloud services (shown in the developer tools UI
+# and in the automation editor).
+refresh_session:
+  name: 手动续期云会话
+  description: 立即用保存的刷新令牌（rt）换取新的访问令牌，并返回会话状态。
+  fields: {}

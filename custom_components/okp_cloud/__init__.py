@@ -3,19 +3,96 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
-from .const import CONF_PASSWORD, DOMAIN, PLATFORMS
+from .const import (
+    CONF_PASSWORD,
+    DOMAIN,
+    PLATFORMS,
+    SERVICE_REFRESH_SESSION,
+)
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 # Devices list storage key inside entry.data (v1.1.9+).
 DEVICES_KEY = "devices"
+
+
+async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
+    """Force a CoolKit session renewal and report the outcome.
+
+    v1.2.9: the access token is long-lived (weeks), so the ``rt`` renewal path
+    would otherwise only be exercised when it is already too late to tell a
+    working renewal from a lucky cache hit. This service exercises the same
+    code the poll cycle uses, and answers with the new session state so the
+    result is observable from the developer tools UI.
+    """
+    hass: HomeAssistant = call.hass
+    entries: list[dict[str, Any]] = []
+    for entry_id, store in (hass.data.get(DOMAIN) or {}).items():
+        if not isinstance(store, dict) or "api" not in store:
+            continue
+        api: OkpApi = store["api"]
+        coordinators: dict[str, OkpCoordinator] = store.get("coordinators") or {}
+        refreshed_by: str | None = None
+        error: str | None = None
+
+        renewed = False
+        try:
+            renewed = await api.refresh_coolkit_by_rt()
+        except (OkpApiError, OkpAuthError) as err:
+            error = str(err)
+        if renewed:
+            refreshed_by = "rt"
+        else:
+            # No usable refresh token (or the gateway refused it): fall back
+            # to the okplife route, which needs a live OKP access token.
+            rt_error = error or "no refresh token stored"
+            try:
+                await api.refresh_coolkit_token()
+                refreshed_by = "okplife"
+                error = f"rt unavailable ({rt_error})"
+            except (OkpApiError, OkpAuthError) as err2:
+                error = f"rt: {rt_error}; okplife: {err2}"
+
+        if refreshed_by:
+            for coordinator in coordinators.values():
+                coordinator.async_persist_tokens(force=True)
+
+        entries.append(
+            {
+                "entry_id": entry_id,
+                "refreshed_by": refreshed_by,
+                "session_state": api.session_state,
+                "has_refresh_token": bool(api.coolkit_rt),
+                "token_expires_at": api.coolkit_at_expire or None,
+                "error": error,
+            }
+        )
+        if refreshed_by:
+            _LOGGER.info("OKP session renewed on demand via %s", refreshed_by)
+        else:
+            _LOGGER.warning("OKP on-demand renewal failed: %s", error)
+
+    return {"entries": entries}
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register the integration services once."""
+    if hass.services.has_service(DOMAIN, SERVICE_REFRESH_SESSION):
+        return
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REFRESH_SESSION,
+        _async_refresh_session,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 def _device_list(entry: ConfigEntry) -> list[dict]:
@@ -56,6 +133,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data[DEVICES_KEY] = devices
     if new_data != entry.data:
         hass.config_entries.async_update_entry(entry, data=new_data)
+
+    _async_register_services(hass)
 
     session = async_create_clientsession(hass)
     api = OkpApi(session)
