@@ -41,7 +41,9 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
     """
     hass: HomeAssistant = call.hass
     entries: list[dict[str, Any]] = []
-    for entry_id, store in (hass.data.get(DOMAIN) or {}).items():
+    # Iterate a snapshot: persisting tokens updates the config entry, and an
+    # options change can reload it, both of which mutate hass.data[DOMAIN].
+    for entry_id, store in list((hass.data.get(DOMAIN) or {}).items()):
         if not isinstance(store, dict) or "api" not in store:
             continue
         api: OkpApi = store["api"]
@@ -316,7 +318,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when its options change."""
+    """Reload the entry when the realtime option changed.
+
+    Deliberately *not* a blanket "reload on update": the coordinator writes
+    renewed tokens into ``entry.data`` several times a day, and every one of
+    those writes fires this listener. Reloading on them would tear down the
+    integration - and, worse, would replace ``hass.data[DOMAIN]`` while a
+    service iterates it ("dictionary changed size during iteration"). Only a
+    change between "option says on" and "a socket actually exists" is acted on.
+    """
+    store = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
+    wanted = bool(entry.options.get(CONF_REALTIME, True))
+    running = store.get("realtime") is not None
+    if wanted == running:
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
