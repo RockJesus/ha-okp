@@ -82,6 +82,12 @@ WS_HANDSHAKE_TIMEOUT = 15
 # value repeats. A socket that stayed up for more than two minutes resets the
 # index, so a nightly router reboot does not leave a 5-minute gap behind.
 WS_RECONNECT_DELAYS = (0, 5, 15, 30, 60, 120, 300)
+# After replacing the token we close the old socket ourselves; the cloud needs
+# a moment to release that session, so the next handshake waits this long.
+WS_RECONNECT_GRACE = 3
+# A failure that lands inside this window after a self-initiated reconnect is
+# the tail of that handover, not an outage - log it at debug instead of warning.
+WS_CHURN_WINDOW = 90
 # How long the socket may keep replacing the poll with pushes before a real
 # HTTP read is forced in. The poll is still the only thing that renews the
 # token, refreshes the map and probes for firmware, so it must not starve.

@@ -44,8 +44,10 @@ from .const import (
     WS_DISPATCH_URL_TEMPLATE,
     WS_HANDSHAKE_TIMEOUT,
     WS_HB_INTERVAL_FALLBACK,
+    WS_CHURN_WINDOW,
     WS_PATH,
     WS_RECONNECT_DELAYS,
+    WS_RECONNECT_GRACE,
     WS_USER_VERSION,
 )
 
@@ -85,6 +87,12 @@ class OkpRealtime:
         # read loop can exit quietly instead of reporting a cloud-side drop.
         self._closed_by_us = False
         self._reconnect_requested = False
+        # When the last self-initiated reconnect was asked for. A close that
+        # lands just after it is the cloud releasing the old session, not an
+        # outage, so it is logged at debug level.
+        self._reconnect_at = 0.0
+        # True when the read loop returned because we asked it to.
+        self._ended_by_request = False
         # Diagnostic state (read by the realtime sensor).
         self.state = STATE_IDLE
         self.host: str | None = None
@@ -137,6 +145,7 @@ class OkpRealtime:
         self._logged_error = None
         self._reconnect_requested = True
         self._closed_by_us = True
+        self._reconnect_at = time.time()
 
     async def _async_close_ws(self) -> None:
         ws = self._ws
@@ -164,10 +173,24 @@ class OkpRealtime:
                 self.last_error = str(err) or type(err).__name__
                 if self.state != STATE_DISABLED:
                     self.state = STATE_ERROR
-                self._log_once(self.last_error)
+                if time.time() - self._reconnect_at < WS_CHURN_WINDOW:
+                    # We just replaced the token a moment ago; the cloud may
+                    # still be tearing down the session we left behind, which
+                    # closes the fresh one. Expected churn, not an outage.
+                    _LOGGER.debug(
+                        "OKP realtime churn right after reconnecting: %s",
+                        self.last_error,
+                    )
+                else:
+                    self._log_once(self.last_error)
 
             if self._closing:
                 break
+            if self._ended_by_request:
+                # Give the cloud a moment to release the session we just left,
+                # otherwise the fresh handshake can be closed by it.
+                self._ended_by_request = False
+                await asyncio.sleep(WS_RECONNECT_GRACE)
             # A connection that lasted a while resets the backoff; a socket
             # that dies right after the handshake backs off quickly instead of
             # reconnect-looping against the cloud.
@@ -196,6 +219,7 @@ class OkpRealtime:
         """One connect / handshake / read cycle."""
         self._closed_by_us = False
         self._reconnect_requested = False
+        self._ended_by_request = False
         if not self.api.coolkit_at or not self.api.coolkit_apikey:
             # Nothing to authenticate with yet. Not an error worth warning
             # about: the poll cycle is still working on it.
@@ -355,11 +379,13 @@ class OkpRealtime:
         poll = max(2.0, min(10.0, hb_interval / 4))
         while not self._closing:
             if self._reconnect_requested:
+                self._ended_by_request = True
                 return
             try:
                 msg = await ws.receive(timeout=poll)
             except asyncio.TimeoutError:
                 if self._reconnect_requested or self._closing:
+                    self._ended_by_request = bool(self._reconnect_requested)
                     return
                 # No traffic for a full heartbeat interval: the TCP connection
                 # may look alive while the cloud has already dropped it.
@@ -378,7 +404,8 @@ class OkpRealtime:
             ):
                 if self._closed_by_us or self._closing:
                     return
-                raise RuntimeError("socket closed by the cloud")
+                extra = f" code={msg.data}" if msg.data else ""
+                raise RuntimeError(f"socket closed by the cloud{extra}")
             elif msg.type is aiohttp.WSMsgType.ERROR:
                 raise RuntimeError(f"socket error: {ws.exception()}")
 
