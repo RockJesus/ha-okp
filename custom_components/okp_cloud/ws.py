@@ -45,6 +45,7 @@ from .const import (
     WS_HANDSHAKE_TIMEOUT,
     WS_HB_INTERVAL_FALLBACK,
     WS_CHURN_WINDOW,
+    WS_FLAG_POLL,
     WS_PATH,
     WS_RECONNECT_DELAYS,
     WS_RECONNECT_GRACE,
@@ -102,6 +103,8 @@ class OkpRealtime:
         self.last_error: str | None = None
         self.connected_since: float | None = None
         self.last_message_at: float | None = None
+        # Monotonic timestamp of the last frame, for the silence check.
+        self.last_rx = time.monotonic()
         self.messages = 0
         self.pushes = 0
         self.reconnects = 0
@@ -257,7 +260,7 @@ class OkpRealtime:
                     eager_start=False,
                 )
                 try:
-                    await self._async_read(ws, hb_interval)
+                    await self._async_watch(ws, hb_interval)
                 except asyncio.CancelledError:
                     raise
                 except Exception:  # noqa: BLE001
@@ -367,37 +370,18 @@ class OkpRealtime:
             except (aiohttp.ClientError, RuntimeError):
                 return
 
-    async def _async_read(
-        self, ws: aiohttp.ClientWebSocketResponse, hb_interval: int
-    ) -> None:
-        """Read frames until the socket dies or a reconnect is requested.
+    async def _async_read(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+        """Read frames until the socket dies.
 
-        The receive timeout is short on purpose. Closing a websocket from
-        *another* task while this one sits in ``receive()`` does not reliably
-        wake it up (aiohttp coordinates the close with the reader, so the two
-        can wait on each other), which is exactly why the token-renewal
-        reconnect silently did nothing. Polling a flag every few seconds keeps
-        the reconnect path independent of aiohttp's close semantics.
+        Deliberately without a receive timeout: aiohttp's per-call timeout did
+        not actually fire here (the loop sat in ``receive()`` for minutes), so
+        nothing may depend on it. The caller watches this task instead - see
+        ``_async_watch``.
         """
-        last_rx = time.monotonic()
-        poll = max(2.0, min(10.0, hb_interval / 4))
         while not self._closing:
             self.read_iterations += 1
-            if self._reconnect_requested:
-                self._ended_by_request = True
-                return
-            try:
-                msg = await ws.receive(timeout=poll)
-            except asyncio.TimeoutError:
-                if self._reconnect_requested or self._closing:
-                    self._ended_by_request = bool(self._reconnect_requested)
-                    return
-                # No traffic for a full heartbeat interval: the TCP connection
-                # may look alive while the cloud has already dropped it.
-                if time.monotonic() - last_rx > hb_interval:
-                    raise RuntimeError(f"no traffic for {hb_interval}s")
-                continue
-            last_rx = time.monotonic()
+            msg = await ws.receive()
+            self.last_rx = time.monotonic()
             if msg.type is aiohttp.WSMsgType.TEXT:
                 self._handle_text(msg.data)
             elif msg.type is aiohttp.WSMsgType.BINARY:
@@ -413,6 +397,43 @@ class OkpRealtime:
                 raise RuntimeError(f"socket closed by the cloud{extra}")
             elif msg.type is aiohttp.WSMsgType.ERROR:
                 raise RuntimeError(f"socket error: {ws.exception()}")
+
+    async def _async_watch(
+        self, ws: aiohttp.ClientWebSocketResponse, hb_interval: int
+    ) -> None:
+        """Supervise the reader: honour reconnect requests, detect silence.
+
+        This is the part that has to be independent of aiohttp: it wakes up on
+        its own timer, so both "the token was renewed, drop the socket" and
+        "the cloud went quiet" are noticed within WS_FLAG_POLL seconds even if
+        the reader task is parked in ``receive()`` forever. Closing a socket
+        from another task does not wake ``receive()`` reliably (aiohttp
+        coordinates the close with the reader), but *cancelling* the task does.
+        """
+        reader = asyncio.create_task(self._async_read(ws))
+        try:
+            while True:
+                done, _ = await asyncio.wait({reader}, timeout=WS_FLAG_POLL)
+                if reader in done:
+                    # Re-raise whatever the reader hit (close, error, ...).
+                    reader.result()
+                    return
+                if self._reconnect_requested:
+                    self._ended_by_request = True
+                    return
+                if self._closing:
+                    return
+                # No traffic for a full heartbeat interval: the TCP connection
+                # may look alive while the cloud has already dropped it.
+                if time.monotonic() - self.last_rx > hb_interval:
+                    raise RuntimeError(f"no traffic for {hb_interval}s")
+        finally:
+            if not reader.done():
+                reader.cancel()
+                try:
+                    await reader
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
     # -- frame handling ---------------------------------------------------
 

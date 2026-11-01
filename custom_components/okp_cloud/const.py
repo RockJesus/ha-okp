@@ -88,6 +88,10 @@ WS_RECONNECT_GRACE = 3
 # A failure that lands inside this window after a self-initiated reconnect is
 # the tail of that handover, not an outage - log it at debug instead of warning.
 WS_CHURN_WINDOW = 90
+# How often the supervisor task wakes up to honour a reconnect request and to
+# check for a silent socket. Kept short: aiohttp's own receive timeout proved
+# unreliable here, so nothing may depend on it.
+WS_FLAG_POLL = 5
 # How long the socket may keep replacing the poll with pushes before a real
 # HTTP read is forced in. The poll is still the only thing that renews the
 # token, refreshes the map and probes for firmware, so it must not starve.
