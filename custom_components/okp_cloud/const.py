@@ -73,6 +73,19 @@ REFRESH_MIN_INTERVAL = 120
 # cloud answers it while another client holds the session) used to pop the
 # prompt immediately, which looked like a random error banner.
 REAUTH_AFTER_FAILURES = 3
+# v1.2.11: how long to assume a freshly issued CoolKit access token lives when
+# the renewal response does not say. The gateway's documented policy is a
+# 30-day access token ("Access Token expires in 30 days... you can use Refresh
+# Token to refresh to obtain Access Token instead of logging in again", CoolKit
+# v2 API docs; third-party long-running clients renew every 28 days), and the
+# first authentication of this account indeed returned exactly 30 days.
+#
+# This value doubles as the tolerated Home Assistant downtime: the entry keeps
+# the token and its expiry on disk, so after a restart the integration only
+# needs a token that is still alive. Assuming 1 hour (v1.2.10) meant a downtime
+# of over an hour forced a manual reauthentication; 25 days leaves a 5-day
+# safety margin under the documented 30 without wasting renewals.
+AT_LIFETIME_FALLBACK_SECONDS = 25 * 24 * 3600
 
 # Signing
 SIGN_CLIENT_ID = "971d3d280f96"

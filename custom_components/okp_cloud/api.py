@@ -11,6 +11,7 @@ import aiohttp
 
 from .const import (
     API_BASE,
+    AT_LIFETIME_FALLBACK_SECONDS,
     CK_APP_ID,
     CK_BASE,
     CK_DOMAIN,
@@ -117,6 +118,10 @@ class OkpApi:
         # True when coolkit_at_expire was inferred locally instead of read
         # from the cloud response.
         self.at_expire_inferred: bool = False
+        # How long a freshly issued access token is assumed to live. Updated
+        # whenever the cloud actually tells us (see refresh_coolkit_token);
+        # otherwise the documented 30-day policy minus a safety margin.
+        self.at_lifetime: int = AT_LIFETIME_FALLBACK_SECONDS
 
     # -- low level helpers ------------------------------------------------
 
@@ -255,6 +260,9 @@ class OkpApi:
         self.coolkit_at_expire = _parse_expire(data)
         self.last_refresh_fields = sorted(str(k) for k in data.keys())
         self.at_expire_inferred = not bool(self.coolkit_at_expire)
+        if self.coolkit_at_expire:
+            # Remember the real lifetime for renewals that omit the field.
+            self.at_lifetime = max(600, self.coolkit_at_expire - int(time.time()))
         self.coolkit_refreshed_at = time.time()
         self.at_rejected = False
         self.session_source = "okplife"
@@ -330,18 +338,21 @@ class OkpApi:
                 self.at_rejected = False
                 self.last_refresh_fields = sorted(str(k) for k in data.keys())
                 expire = _parse_expire(data)
+                now = time.time()
                 if expire:
                     self.coolkit_at_expire = expire
                     self.at_expire_inferred = False
+                    # Learn the real lifetime so later renewals that omit the
+                    # field are still timed correctly.
+                    self.at_lifetime = max(600, expire - int(now))
                 else:
-                    # v1.2.10: this gateway sometimes answers with just at/rt
-                    # and no expiry at all. Keeping the *previous* expiry would
-                    # be worse than useless: the fresh token may live far
-                    # shorter than the old one, so the poll cycle would only
-                    # renew it after it had already died - exactly the failure
-                    # mode that forces a reauthentication. Assume one hour,
-                    # renewal with rt is cheap.
-                    self.coolkit_at_expire = int(time.time()) + 3600
+                    # v1.2.11: this gateway answers with just at/rt and no
+                    # expiry. The documented policy is a 30-day access token,
+                    # so assume the known lifetime (25 days by default) rather
+                    # than the 1-hour placeholder of v1.2.10 - that placeholder
+                    # made every HA downtime longer than an hour need a manual
+                    # reauthentication, while this one tolerates 25 days.
+                    self.coolkit_at_expire = int(now) + self.at_lifetime
                     self.at_expire_inferred = True
                 self.coolkit_refreshed_at = time.time()
                 self.session_source = "rt"

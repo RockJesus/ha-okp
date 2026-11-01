@@ -347,6 +347,9 @@ class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
             # v1.2.10: "inferred" means the cloud returned no expiry and a
             # one-hour assumption was used, so an hourly renewal is expected.
             "token_expiry_source": "inferred" if api.at_expire_inferred else "cloud",
+            # Assumed lifetime of a fresh access token (25 days unless the
+            # cloud told us otherwise). Also the tolerated HA downtime.
+            "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
             "last_refresh_fields": api.last_refresh_fields,
             "last_refresh_error": api.last_rt_error,
             "auth_failures": self.coordinator.auth_failure_count,
