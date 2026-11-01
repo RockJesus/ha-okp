@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 import uuid
 from typing import Any
@@ -18,15 +19,19 @@ from .const import (
     CK_ENDPOINT_SWEEP_MAP,
     CK_ENDPOINT_THING,
     CK_ENDPOINT_THING_UPDATE,
+    CK_ENDPOINT_USER_REFRESH,
     ENDPOINT_CK_USER_INFO,
     ENDPOINT_DEVICE_DETAIL,
     ENDPOINT_DEVICE_LIST,
     ENDPOINT_HOME_LIST,
     ENDPOINT_LOGIN,
     OKP_HEADERS,
+    REFRESH_MIN_INTERVAL,
     SIGN_CLIENT_ID,
     SIGN_KEY,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OkpApiError(Exception):
@@ -180,25 +185,103 @@ class OkpApi:
         self.coolkit_at_expire = int(expire) if expire else 0
         self.coolkit_refreshed_at = time.time()
 
+    async def refresh_coolkit_by_rt(self) -> bool:
+        """Renew the CoolKit session with the CoolKit refresh token.
+
+        CoolKit has its own renewal endpoint, and it is the only one that does
+        not depend on the OKP access token: the OKP login token lives for a
+        few hours and okplife exposes no refresh route for it, so an
+        integration that only knows how to ask okplife for a new CoolKit token
+        goes dead every few hours and needs the user to type the password
+        again. The refresh token survives that (and HA restarts, because it is
+        persisted in the config entry).
+
+        Returns True when a new token was obtained, False when there is no
+        refresh token to use (caller should fall back to okplife).
+        """
+        if not self.coolkit_rt:
+            return False
+        self._last_refresh_try = time.time()
+        headers = {
+            "x-ck-appid": CK_APP_ID,
+            "domain-name": CK_DOMAIN,
+            "content-type": "application/json",
+        }
+        try:
+            async with self._session.post(
+                f"{CK_BASE}{CK_ENDPOINT_USER_REFRESH}",
+                json={"rt": self.coolkit_rt},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise OkpApiError(f"coolkit refresh network error: {err}") from err
+        except ValueError as err:
+            raise OkpApiError(f"bad response from coolkit refresh: {err}") from err
+        if body.get("error"):
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            if error in (401, 402, 403):
+                # Refresh token rejected: drop it so we stop retrying with it
+                # and let the caller fall back to the okplife route.
+                self.coolkit_rt = None
+                raise OkpAuthError(f"coolkit refresh {error}: {msg}")
+            raise OkpApiError(f"coolkit refresh error {error}: {msg}")
+        data = body.get("data") or {}
+        at = data.get("at")
+        if not at:
+            raise OkpApiError("coolkit refresh returned no at")
+        self.coolkit_at = at
+        self.coolkit_rt = data.get("rt") or self.coolkit_rt
+        expire = data.get("atExpiredTime") or data.get("at_expire_at")
+        if expire:
+            try:
+                expire = int(expire)
+            except (TypeError, ValueError):
+                expire = 0
+            if expire > 10**11:  # milliseconds -> seconds
+                expire //= 1000
+            if expire:
+                self.coolkit_at_expire = expire
+        self.coolkit_refreshed_at = time.time()
+        _LOGGER.debug(
+            "OKP CoolKit token renewed via rt (expires %s)",
+            self.coolkit_at_expire or "unknown",
+        )
+        return True
+
     async def ensure_coolkit_token(self) -> None:
         # Refresh when: no token, token within 5 min of expiry, or no expiry
         # metadata returned (some endpoints omit at_expire_at) and the token
         # is older than 12 hours. This is a safety net so a stale token never
         # keeps polling 401 forever.
         stale = (
-            not getattr(self, "coolkit_refreshed_at", 0)
+            not self.coolkit_refreshed_at
             or time.time() - self.coolkit_refreshed_at > 12 * 3600
         )
-        if not self.coolkit_at or (
-            self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300
-        ) or (not self.coolkit_at_expire and stale):
-            # After the token was cleared (401/402/403) or is missing, a
-            # refresh may fail transiently; throttle repeated attempts so a
-            # down OKP network cannot cause a poll-every-3-minutes refresh
-            # storm against the cloud.
-            if time.time() - self._last_refresh_try < 300:
-                raise OkpApiError("coolkit token refresh throttled (recent attempt)")
-            await self.refresh_coolkit_token()
+        if self.coolkit_at and not (
+            (self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300)
+            or (not self.coolkit_at_expire and stale)
+        ):
+            return
+        # After the token was cleared (401/402/403) or is missing, a refresh
+        # may fail transiently; throttle repeated attempts so a down OKP
+        # network cannot cause a refresh storm against the cloud.
+        if time.time() - self._last_refresh_try < REFRESH_MIN_INTERVAL:
+            raise OkpApiError("coolkit token refresh throttled (recent attempt)")
+        # 1) Preferred: renew the CoolKit session with its own refresh token.
+        #    Independent of the OKP access token, so it keeps working after
+        #    the OKP token expires.
+        if self.coolkit_rt:
+            try:
+                if await self.refresh_coolkit_by_rt():
+                    return
+            except OkpApiError as err:
+                _LOGGER.debug("OKP rt refresh failed, falling back to okplife: %s", err)
+        # 2) Fallback: ask okplife for a brand new CoolKit token. Needs a live
+        #    OKP access token; raises OkpAuthError (-> reauth) when it is gone.
+        await self.refresh_coolkit_token()
 
     async def get_thing_state(self, device_id: str) -> dict:
         await self.ensure_coolkit_token()

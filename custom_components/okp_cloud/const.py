@@ -37,6 +37,11 @@ CK_ENDPOINT_THING_UPDATE = "/v2/device/thing/status"
 CK_ENDPOINT_SWEEP_HISTORY = "/v2/device/sweep-robot-cleanning-history"
 CK_ENDPOINT_SWEEP_MAP = "/v2/device/sweep-robot-cleanning-map"
 CK_ENDPOINT_OTA_QUERY = "/v2/device/ota/query"
+# v1.2.2: CoolKit's own session renewal. Body {"rt": <coolkit_rt>}; returns a
+# fresh at/rt pair. This is the only renewal path that does not depend on the
+# OKP access token, which expires after a few hours and has no refresh
+# endpoint on the okplife side.
+CK_ENDPOINT_USER_REFRESH = "/v2/user/refresh"
 CK_APP_ID = "fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z"  # x-ck-appid (OKP app)
 CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 
@@ -52,6 +57,15 @@ OTA_CHECK_SECONDS = 3600
 # login endpoint every poll cycle (login storms can trip account risk
 # control and break the phone app session).
 RELOGIN_COOLDOWN_SECONDS = 900
+# Minimum gap between two token-refresh attempts (protects the cloud from a
+# refresh storm when it is unreachable). Poll interval is 180 s, so this only
+# suppresses back-to-back attempts from control calls.
+REFRESH_MIN_INTERVAL = 120
+# Number of consecutive failed poll cycles before the integration raises the
+# "re-authentication required" repair issue. A single transient 4001 (the
+# cloud answers it while another client holds the session) used to pop the
+# prompt immediately, which looked like a random error banner.
+REAUTH_AFTER_FAILURES = 3
 
 # Signing
 SIGN_CLIENT_ID = "971d3d280f96"

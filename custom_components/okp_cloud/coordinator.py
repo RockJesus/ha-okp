@@ -17,6 +17,7 @@ from .const import (
     MAP_HISTORY_NUM,
     MAP_REFRESH_MINUTES,
     OTA_CHECK_SECONDS,
+    REAUTH_AFTER_FAILURES,
     RELOGIN_COOLDOWN_SECONDS,
 )
 from .map_render import parse_map_paths, render_map_png
@@ -65,6 +66,12 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._next_retry_at: float = 0.0
         # Whether a reauth prompt has already been requested for this load.
         self._reauth_requested = False
+        # Consecutive failed poll cycles caused by authentication. The reauth
+        # prompt only fires after REAUTH_AFTER_FAILURES of them, so a single
+        # transient 4001 no longer pops a "re-auth required" banner.
+        self._auth_failures = 0
+        # Last api.coolkit_refreshed_at value already written to the entry.
+        self._token_persist_mark = api.coolkit_refreshed_at
 
     async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
         """Ask Home Assistant to start the reauth flow (user enters password).
@@ -100,6 +107,38 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning("OKP reauth flow started: %s", err)
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)
+
+    def _persist_tokens(self) -> None:
+        """Write the CoolKit token pair back into the config entry.
+
+        Persisting ``rt`` is what makes the integration survive an OKP access
+        token expiry *and* a Home Assistant restart: without it the only way
+        to get a new CoolKit token is the okplife route, which needs a live
+        (and short-lived) OKP token. Tokens are written only when a refresh
+        actually happened, so the entry is not rewritten on every poll.
+        """
+        api = self.api
+        if api.coolkit_refreshed_at == self._token_persist_mark:
+            return
+        entry = (
+            self.hass.config_entries.async_get_entry(self.entry_id)
+            if self.entry_id
+            else None
+        )
+        if entry is None:
+            return
+        new_data = {
+            **entry.data,
+            "coolkit_at": api.coolkit_at,
+            "coolkit_at_expire": api.coolkit_at_expire,
+            "coolkit_rt": api.coolkit_rt,
+            "coolkit_apikey": api.coolkit_apikey,
+            "coolkit_region": api.coolkit_region,
+        }
+        self._token_persist_mark = api.coolkit_refreshed_at
+        if new_data != entry.data:
+            self.hass.config_entries.async_update_entry(entry, data=new_data)
+            _LOGGER.debug("OKP CoolKit tokens persisted to the config entry")
 
     async def _async_refresh_map(self) -> None:
         """Fetch the newest cleaning run map (low frequency).
@@ -186,20 +225,31 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise UpdateFailed("auth failed, retrying later") from None
             self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS
             try:
-                await self.api.refresh_coolkit_token()
+                # ensure_coolkit_token() prefers the CoolKit refresh token and
+                # only falls back to okplife, so a dead OKP access token does
+                # not necessarily kill the poll cycle.
+                await self.api.ensure_coolkit_token()
                 item = await self.api.get_thing_state(self.device_id)
+                self._persist_tokens()
             except (OkpApiError, OkpAuthError) as err:
                 self.last_error = str(err)
+                self._auth_failures += 1
                 _LOGGER.warning(
-                    "OKP auth failed, re-auth needed in Home Assistant: %s", err
+                    "OKP auth failed (%d/%d): %s",
+                    self._auth_failures,
+                    REAUTH_AFTER_FAILURES,
+                    err,
                 )
-                await self._maybe_trigger_reauth(err)
+                if self._auth_failures >= REAUTH_AFTER_FAILURES:
+                    await self._maybe_trigger_reauth(err)
                 raise UpdateFailed(str(err)) from err
         except OkpApiError as err:
             self.last_error = str(err)
             _LOGGER.warning("OKP state fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err
         self.last_error = None
+        self._auth_failures = 0
+        self._persist_tokens()
         await self._async_refresh_map()
         await self._async_check_ota()
         return {

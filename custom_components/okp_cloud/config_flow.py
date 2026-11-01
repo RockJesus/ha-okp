@@ -105,6 +105,12 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             # app session on OKP's single-session cloud).
             "coolkit_at": api.coolkit_at,
             "coolkit_at_expire": api.coolkit_at_expire,
+            # v1.2.2: the CoolKit refresh token is what renews the cloud
+            # session after the OKP access token expires — without it the
+            # integration goes dead a few hours after every login.
+            "coolkit_rt": api.coolkit_rt,
+            "coolkit_apikey": api.coolkit_apikey,
+            "coolkit_region": api.coolkit_region,
             "home_id": home_id,
             # flat first-device fields (legacy)
             "device_id": first.get("id"),

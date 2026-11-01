@@ -94,6 +94,11 @@
 
 ## 📝 更新日志
 
+- v1.2.2（2026-11-01）：修复「集成每几小时就掉线并要求重新认证」——
+  ① **只存了 `coolkit_at` 没存 `coolkit_rt`**：CoolKit 令牌过期后唯一的续期途径是 okplife 的 `/v1/coolkit/get-user-info`，而它依赖 OKP 登录令牌，该令牌几小时就过期且 okplife 没有 refresh 接口 → 整条链路死锁，只能人工重输密码。现在改走 CoolKit 自己的 `POST /v2/user/refresh`（body `{"rt":…}`），它与 OKP 登录令牌无关，会话可无限续期；okplife 仅作兜底。同时把 `at/rt/apikey/region` 全部持久化到配置条目，HA 重启不再丢会话（升级后首次启动会自动补抓一次 `rt`）；
+  ② **重启时不再因缺少 `rt` 而反复失败**：`ensure_coolkit_token()` 先试 refresh token，失败才回退 okplife；刷新节流从 300s 降到 120s，且节流不再计入认证失败；
+  ③ **不再为一次抖动弹「需要重新认证」**：连续 3 个轮询周期（约 9 分钟）认证失败才会弹窗，成功一次即清零——之前 4001 出现一次就立刻建修复项，看起来像随机报错；
+  ④ 轮询彻底失败时抛 `UpdateFailed`，日志里给出 `OKP auth failed (n/3)` 便于判断进展
 - v1.2.1（2026-11-01）：修复 1.2.0 实测暴露的三个缺陷——① **控制全部失效**：CoolKit 写状态接口路径写错（`/v2/device/thing/update` 在网关不存在，恒返回 `403 api not found`），改为 `/v2/device/thing/status`，请求体同步改为 `{"type":1,"id":…,"params":…}`；② **重新认证流程崩溃**：`async_step_reauth` 把 HA 传入的配置条目数据当成表单输入，索引已不再保存的 `password` 抛 `KeyError`（日志表现为 `Task exception was never retrieved`），改为标准的 `reauth` + `reauth_confirm` 两步流程；③ 控制失败不再清空 CoolKit 令牌（403 属请求/权限问题，非认证问题），并向界面抛 `HomeAssistantError` 而非原始异常堆栈；重新认证改为回写完整设备列表，多设备场景不会丢设备
 - v1.2.0（2026-11-01）：对照 v3.4.0 App 全量操作抓包补齐/修复——① CoolKit 令牌获取改用 App 实测的 `GET /v1/coolkit/get-user-info`（旧 `refresh-access-token` 端点 App 已不再调用，服务端可能已下线）；② 修复清扫记录接口时间戳（改为 13 位毫秒、与 App 完全一致，旧版传微秒导致地图/记录取数异常）；③ 支持账号下的多个家庭（App 可建多家庭，设备可能在任一家庭，配置时全部扫描并去重）；④ 新增 4 个传感器：移动状态（move）、版本（version）、最近清扫时间（取自清扫记录接口）、固件更新（OTA 查询，每小时探测，有新版时显示版本号）；⑤ 工作状态映射按抓包实测校准（清扫中=4）；⑥ 清扫记录开始/结束传感器改显示清扫记录编号（该字段实际是记录 ID 而非时间）；⑦ 无清扫记录时地图状态显示「暂无清扫记录」
 

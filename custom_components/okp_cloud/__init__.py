@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
-from .api import OkpApi
+from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import CONF_PASSWORD, DOMAIN, PLATFORMS
 from .coordinator import OkpCoordinator
 
@@ -61,11 +61,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api = OkpApi(session)
     api.access_token = entry.data.get("access_token")
     api.user_id = entry.data.get("user_id")
-    # Reuse a stored CoolKit token when available (avoids an extra refresh
-    # request on startup); it is renewed silently when expired.
+    # Reuse a stored CoolKit token pair when available (avoids an extra
+    # refresh request on startup). The refresh token is what keeps the
+    # session alive once the OKP access token expires, so it is restored
+    # alongside the access token.
     api.coolkit_at = entry.data.get("coolkit_at")
+    api.coolkit_rt = entry.data.get("coolkit_rt")
+    api.coolkit_apikey = entry.data.get("coolkit_apikey")
+    api.coolkit_region = entry.data.get("coolkit_region")
     if api.coolkit_at:
         api.coolkit_at_expire = int(entry.data.get("coolkit_at_expire") or 0)
+
+    # Upgrade path for entries created before v1.2.2 (only `coolkit_at` was
+    # stored): mint a refresh token while the OKP access token still works,
+    # otherwise the session dies as soon as the CoolKit token expires.
+    if not api.coolkit_rt and api.access_token:
+        try:
+            await api.refresh_coolkit_token()
+            new_data = {
+                **entry.data,
+                "coolkit_at": api.coolkit_at,
+                "coolkit_at_expire": api.coolkit_at_expire,
+                "coolkit_rt": api.coolkit_rt,
+                "coolkit_apikey": api.coolkit_apikey,
+                "coolkit_region": api.coolkit_region,
+            }
+            if new_data != entry.data:
+                hass.config_entries.async_update_entry(entry, data=new_data)
+                _LOGGER.debug("OKP CoolKit refresh token captured on setup")
+        except (OkpApiError, OkpAuthError) as err:
+            # Non-fatal: the poll cycle retries and raises reauth if needed.
+            _LOGGER.debug("OKP could not capture a CoolKit refresh token: %s", err)
 
     # One coordinator per robot: independent poll cycle, map cache and
     # per-device entity state.
