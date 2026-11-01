@@ -84,6 +84,7 @@ class OkpRealtime:
         # Set when *we* closed the socket on purpose (token renewal), so the
         # read loop can exit quietly instead of reporting a cloud-side drop.
         self._closed_by_us = False
+        self._reconnect_requested = False
         # Diagnostic state (read by the realtime sensor).
         self.state = STATE_IDLE
         self.host: str | None = None
@@ -132,19 +133,23 @@ class OkpRealtime:
         """
         self._attempt = 0
         self._logged_error = None
+        self._reconnect_requested = True
+        self._closed_by_us = True
         if self._ws is not None and not self._ws.closed:
-            self._closed_by_us = True
             self.hass.async_create_task(self._async_close_ws())
 
     async def _async_close_ws(self) -> None:
         ws = self._ws
-        self._ws = None
         if ws is not None and not ws.closed:
             self._closed_by_us = True
             try:
                 await ws.close()
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
+        # Only forget the socket we actually closed: a reconnect may already
+        # have installed a new one while this task was waiting.
+        if self._ws is ws:
+            self._ws = None
 
     # -- main loop --------------------------------------------------------
 
@@ -190,6 +195,7 @@ class OkpRealtime:
     async def _async_session(self) -> None:
         """One connect / handshake / read cycle."""
         self._closed_by_us = False
+        self._reconnect_requested = False
         if not self.api.coolkit_at or not self.api.coolkit_apikey:
             # Nothing to authenticate with yet. Not an error worth warning
             # about: the poll cycle is still working on it.
@@ -224,6 +230,16 @@ class OkpRealtime:
                 )
                 try:
                     await self._async_read(ws, hb_interval)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    # Closing a socket from another task does not always make
+                    # the pending receive() return a CLOSE frame - depending on
+                    # timing it surfaces as ConnectionResetError instead. Either
+                    # way it is *our* close, so it must not be reported as a
+                    # cloud-side drop.
+                    if not (self._reconnect_requested or self._closing):
+                        raise
                 finally:
                     ping_task.cancel()
             finally:
