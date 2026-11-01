@@ -17,6 +17,10 @@ from .const import (
     MAP_CHECK_SECONDS,
     MAP_HISTORY_NUM,
     MAP_REFRESH_MINUTES,
+    MOVE_DP,
+    MOVE_HOLD_MAX_SECONDS,
+    MOVE_RELEASE_VALUE,
+    MOVE_WATCHDOG_GRACE,
     OTA_CHECK_SECONDS,
     PUSH_POLL_GUARD_SECONDS,
     REAUTH_AFTER_FAILURES,
@@ -88,6 +92,14 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_poll_at: float = 0.0
         # When a push last asked for a forced HTTP read (see async_apply_push).
         self._last_push_poll: float = 0.0
+        # v1.4.2: manual remote bookkeeping. ``move_value`` is what we last
+        # wrote (None = never used), and each press bumps a generation so a
+        # stale watchdog cannot release a newer press.
+        self.move_value: int | None = None
+        self.last_move_at: float | None = None
+        self._move_lock = asyncio.Lock()
+        self._move_generation = 0
+        self._move_watchdog: asyncio.Task | None = None
 
     async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
         """Ask Home Assistant to start the reauth flow (user enters password).
@@ -253,6 +265,101 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             wanted,
         )
         return True
+
+    # -- manual remote (v1.4.2) -------------------------------------------
+
+    async def async_move(self, value: int, duration: float) -> dict[str, Any]:
+        """Drive the robot in one direction for ``duration`` seconds.
+
+        The app's joystick works as press/release: it writes ``{"move": N}``
+        when a direction button goes down and ``{"move": 4}`` when it comes up.
+        A duration of 0 means "hold until the caller releases it" — that is what
+        a draggable joystick card needs — and a watchdog releases it anyway
+        after ``MOVE_HOLD_MAX_SECONDS`` so a closed card or a killed script
+        cannot leave the robot driving across the room.
+
+        Returns a small report instead of raising on a partial failure: the
+        press may succeed and the release fail, which is exactly the case the
+        caller must know about.
+        """
+        if value == MOVE_RELEASE_VALUE:
+            return await self.async_release_move()
+
+        # Serialise presses: two overlapping service calls would otherwise
+        # interleave and leave the robot moving with no pending release.
+        async with self._move_lock:
+            await self.api.set_thing_params(self.device_id, {MOVE_DP: value})
+            self.move_value = value
+            self.last_move_at = time.time()
+            self._move_generation += 1
+            generation = self._move_generation
+
+        if duration <= 0:
+            self._start_move_watchdog(generation)
+            return {"move": value, "duration": 0, "released": False}
+
+        try:
+            await asyncio.sleep(duration)
+        finally:
+            # Release even when the service call was cancelled: a cancelled
+            # caller must not leave the robot rolling. Shielded because a
+            # cancellation would otherwise abort the request mid-flight.
+            release = asyncio.shield(self.async_release_move(generation=generation))
+            try:
+                await release
+            except asyncio.CancelledError:
+                _LOGGER.debug("OKP move release continued after cancellation")
+        return {"move": value, "duration": duration, "released": True}
+
+    async def async_release_move(self, generation: int | None = None) -> dict[str, Any]:
+        """Send the "button released" dp (idempotent)."""
+        if generation is not None and generation != self._move_generation:
+            # A newer press already superseded this one; releasing now would
+            # stop the robot the user just asked to move.
+            return {"released": False, "superseded": True}
+        async with self._move_lock:
+            await self.api.set_thing_params(
+                self.device_id, {MOVE_DP: MOVE_RELEASE_VALUE}
+            )
+            self.move_value = MOVE_RELEASE_VALUE
+            self.last_move_at = time.time()
+        return {"released": True}
+
+    def _start_move_watchdog(self, generation: int) -> None:
+        """Release a held direction if nobody does it for us."""
+        self._cancel_move_watchdog()
+
+        async def _watch() -> None:
+            await asyncio.sleep(MOVE_HOLD_MAX_SECONDS + MOVE_WATCHDOG_GRACE)
+            if generation != self._move_generation:
+                return
+            if self.move_value in (None, MOVE_RELEASE_VALUE):
+                return
+            _LOGGER.warning(
+                "OKP manual move still held after %ss; releasing automatically",
+                MOVE_HOLD_MAX_SECONDS,
+            )
+            try:
+                await self.async_release_move()
+            except (OkpApiError, OkpAuthError) as err:
+                _LOGGER.warning("OKP could not release the manual move: %s", err)
+
+        self._move_watchdog = self.hass.async_create_task(_watch())
+
+    def _cancel_move_watchdog(self) -> None:
+        task = self._move_watchdog
+        self._move_watchdog = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def async_shutdown_move(self) -> None:
+        """Release a held direction and stop the watchdog (entry unload)."""
+        self._cancel_move_watchdog()
+        if self.move_value not in (None, MOVE_RELEASE_VALUE):
+            try:
+                await self.async_release_move()
+            except (OkpApiError, OkpAuthError) as err:
+                _LOGGER.debug("OKP move release on unload failed: %s", err)
 
     def async_persist_tokens(self, force: bool = False) -> None:
         """Public wrapper used by the manual ``refresh_session`` service.

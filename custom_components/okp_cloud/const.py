@@ -58,6 +58,29 @@ SERVICE_REFRESH_SESSION = "refresh_session"
 # ``timers`` array with a single entry's ``enabled`` flag flipped.
 SERVICE_SET_TIMER = "set_timer"
 
+# v1.4.2: manual remote (the app's joystick). The capture shows the app
+# writing the ``move`` dp while a direction button is *held* and writing 4 when
+# it is released -- press/release, not a single "drive N centimetres" command.
+# Values 0..3 are the four directions; the mapping below follows the vendor's
+# ordering (0 forward, 1 back, 2 left, 3 right) and is *not* verified on the
+# unit yet, so the service also accepts a raw ``value`` for a one-off test.
+SERVICE_MOVE = "move"
+MOVE_DP = "move"
+MOVE_RELEASE_VALUE = 4
+MOVE_DIRECTIONS = {
+    "forward": 0,
+    "backward": 1,
+    "left": 2,
+    "right": 3,
+}
+MOVE_STOP = "stop"
+MOVE_DEFAULT_DURATION = 0.4
+# A held direction is released by the caller. If that never happens (card
+# closed, script killed, HA restarting) the watchdog releases it, otherwise the
+# robot would keep driving until it hits something.
+MOVE_HOLD_MAX_SECONDS = 10.0
+MOVE_WATCHDOG_GRACE = 2.0
+
 # v1.3.0: dps that the v3.4.0 app capture showed as user-facing settings
 # rather than raw diagnostics. Their names come from the vendor's own
 # device-detail-info "pid_func_configs" table for this model:

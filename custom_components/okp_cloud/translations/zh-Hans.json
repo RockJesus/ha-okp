@@ -147,13 +147,22 @@
       "carpet_detection": { "name": "地毯检测" }
     },
     "button": {
-      "find_robot": { "name": "查找机器人" }
+      "find_robot": { "name": "查找机器人" },
+      "move_forward": { "name": "前进" },
+      "move_backward": { "name": "后退" },
+      "move_left": { "name": "左转" },
+      "move_right": { "name": "右转" },
+      "move_stop": { "name": "松开（停止移动）" }
     },
     "camera": {
       "map": { "name": "清扫地图" }
     }
   },
   "services": {
+    "move": {
+      "name": "手动遥控",
+      "description": "像 App 的摇杆一样驱动机器人：按住 direction 对应的方向，松开时由集成自动发「松开」。给 duration 就自动按压这么久再松开；duration 设为 0 表示一直按住，直到再调用一次 direction=stop（10 秒后仍无人松开则自动松开）。"
+    },
     "set_timer": {
       "name": "启用/停用定时任务",
       "description": "按 mId 启用或停用设备上的一条定时清扫任务。会先重新读取任务列表、只改目标项的 enabled，写入后回读校验。"

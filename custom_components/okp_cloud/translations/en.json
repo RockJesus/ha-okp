@@ -147,13 +147,22 @@
       "carpet_detection": { "name": "Carpet detection" }
     },
     "button": {
-      "find_robot": { "name": "Find robot" }
+      "find_robot": { "name": "Find robot" },
+      "move_forward": { "name": "Forward" },
+      "move_backward": { "name": "Backward" },
+      "move_left": { "name": "Turn left" },
+      "move_right": { "name": "Turn right" },
+      "move_stop": { "name": "Release (stop moving)" }
     },
     "camera": {
       "map": { "name": "Cleaning map" }
     }
   },
   "services": {
+    "move": {
+      "name": "Manual remote",
+      "description": "Drive the robot like the app joystick: press a direction, and the integration releases it for you. A duration presses and releases automatically; duration 0 holds until direction=stop (auto-released after 10 s)."
+    },
     "set_timer": {
       "name": "Enable/disable schedule",
       "description": "Turn one device-side cleaning schedule on or off by its mId. Re-reads the schedule list first, changes only that entry, and verifies the result."

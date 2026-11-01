@@ -17,7 +17,13 @@ from .const import (
     CONF_PASSWORD,
     CONF_REALTIME,
     DOMAIN,
+    MOVE_DEFAULT_DURATION,
+    MOVE_DIRECTIONS,
+    MOVE_HOLD_MAX_SECONDS,
+    MOVE_RELEASE_VALUE,
+    MOVE_STOP,
     PLATFORMS,
+    SERVICE_MOVE,
     SERVICE_REFRESH_SESSION,
     SERVICE_SET_TIMER,
 )
@@ -162,6 +168,52 @@ async def _async_set_timer(call: ServiceCall) -> dict[str, Any]:
     }
 
 
+async def _async_move(call: ServiceCall) -> dict[str, Any]:
+    """Drive the robot by hand, the way the app's joystick does.
+
+    Two things this has to get right, because a robot is not a lamp:
+
+    * **release** - the app writes ``{"move": 4}`` when the finger lifts. If the
+      caller passes a duration we do that for them (and also when the call is
+      cancelled); with ``duration: 0`` the direction stays held and the
+      coordinator's watchdog releases it after 10 s at the latest.
+    * **one at a time** - overlapping calls are serialised by the coordinator,
+      so a second press cannot silently cancel the first one's release.
+    """
+    data = call.data
+    raw = data.get("value")
+    direction = (data.get("direction") or "").strip().lower()
+    duration = data.get("duration")
+    duration = MOVE_DEFAULT_DURATION if duration is None else float(duration)
+
+    if raw is not None and direction:
+        raise ValueError("pass either direction or value, not both")
+    if raw is None and not direction:
+        raise ValueError("direction is required (or a raw value 0-4)")
+    if duration < 0 or duration > MOVE_HOLD_MAX_SECONDS:
+        raise ValueError(f"duration must be between 0 and {MOVE_HOLD_MAX_SECONDS:g} s")
+
+    if raw is not None:
+        value = int(raw)
+        if value < 0 or value > MOVE_RELEASE_VALUE:
+            raise ValueError("value must be 0-3 (direction) or 4 (release)")
+    elif direction == MOVE_STOP:
+        value = MOVE_RELEASE_VALUE
+    else:
+        value = MOVE_DIRECTIONS.get(direction)
+        if value is None:
+            known = ", ".join(sorted(MOVE_DIRECTIONS)) + ", " + MOVE_STOP
+            raise ValueError(f"unknown direction '{direction}' (known: {known})")
+
+    coordinator = _pick_coordinator(call.hass, data.get("device_id"))
+    try:
+        result = await coordinator.async_move(value, duration)
+    except (OkpApiError, OkpAuthError) as err:
+        raise HomeAssistantError(f"OKP 手动遥控失败：{err}") from err
+    coordinator.async_schedule_refresh((3.0,))
+    return {"direction": direction or None, "value": value, **result}
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register the integration services once."""
     if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_SESSION):
@@ -176,6 +228,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
             DOMAIN,
             SERVICE_SET_TIMER,
             _async_set_timer,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_MOVE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_MOVE,
+            _async_move,
             supports_response=SupportsResponse.OPTIONAL,
         )
 
@@ -347,6 +406,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         store = hass.data[DOMAIN].pop(entry.entry_id, None) or {}
+        for coordinator in (store.get("coordinators") or {}).values():
+            # A remote-control press must not survive an unload/reload.
+            await coordinator.async_shutdown_move()
         realtime = store.get("realtime")
         if realtime is not None:
             # Close the socket before dropping the entry, otherwise the task

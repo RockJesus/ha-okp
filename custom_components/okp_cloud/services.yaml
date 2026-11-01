@@ -34,3 +34,55 @@ set_timer:
       example: "100258a68a"
       selector:
         text:
+
+move:
+  name: 手动遥控
+  description: >-
+    像手机 App 的摇杆一样驱动机器人。App 的做法是「按住时写 move=方向，松手写 move=4」，
+    本服务默认替你把「松手」也做掉（duration 秒后自动松开），所以一次调用就是一次短促移动。
+    想实现真正的摇杆（按住走、松手停），把 duration 设为 0，之后调用 direction: stop 松开；
+    万一调用方没能松开（卡片关了、脚本中断），集成会在 10 秒后自动松开，不会让机器一直往前跑。
+    方向值 0/1/2/3 与前后左右的对应关系来自厂商约定、尚未在真机上核对；如果某个方向不对，
+    可以直接用 value 传原始 dp 值试（0-3 方向，4 松开）。
+  fields:
+    direction:
+      name: 方向
+      description: forward 前进 / backward 后退 / left 左转 / right 右转 / stop 松开（停止移动）。
+      required: false
+      example: forward
+      selector:
+        select:
+          options:
+            - forward
+            - backward
+            - left
+            - right
+            - stop
+    value:
+      name: 原始 dp 值
+      description: 直接用 move dp 的数值（0-3 方向、4 松开），与 direction 二选一。用于核对方向映射。
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 4
+          step: 1
+          mode: box
+    duration:
+      name: 按压时长
+      description: 自动松开的秒数；0 表示一直按住直到 direction=stop。上限 10 秒，缺省 0.4 秒。
+      required: false
+      default: 0.4
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.1
+          unit_of_measurement: s
+    device_id:
+      name: 设备
+      description: 有多台机器人时才需要指定，值为 CoolKit 设备 ID（实体 ID 中间那一段）。
+      required: false
+      example: "100258a68a"
+      selector:
+        text:
