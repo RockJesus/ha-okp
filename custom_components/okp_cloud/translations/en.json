@@ -90,6 +90,7 @@
         "state": {
           "rt": "Self-renewing (app logins do not affect it)",
           "okplife": "Depends on the login token (app logins invalidate it)",
+          "stale": "Re-authentication needed",
           "expired": "Expired"
         }
       },

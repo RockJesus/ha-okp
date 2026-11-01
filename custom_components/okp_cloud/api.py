@@ -384,21 +384,21 @@ class OkpApi:
     def session_state(self) -> str:
         """Describe the session, for the diagnostic sensor.
 
-        ``rt``      - a refresh token is stored, so the session renews itself
-                      and the phone app logging in does not affect it.
-        ``okplife`` - only an access token; it has to be re-minted through the
-                      OKP login token, which every app login invalidates.
-        ``expired`` - no CoolKit token at all.
+        ``rt``      - a usable access token plus a refresh token: the session
+                      renews itself and app logins no longer matter.
+        ``okplife`` - only an access token, renewed through the OKP login
+                      token, which every app login invalidates.
+        ``stale``   - the access token is gone or was rejected. The refresh
+                      token cannot get a new one on its own, because the
+                      renewal endpoint requires a live access token in the
+                      Authorization header - one reauthentication is needed.
+        ``expired`` - no token at all.
         """
         if not self.coolkit_at and not self.coolkit_rt:
             return "expired"
-        if self.coolkit_rt:
-            # A refresh token is present: the session renews itself, whether
-            # or not the current access token is still accepted.
-            return "rt"
-        if self.at_rejected:
-            return "expired"
-        return "okplife"
+        if self.at_rejected or not self.coolkit_at:
+            return "stale" if self.coolkit_rt else "expired"
+        return "rt" if self.coolkit_rt else "okplife"
 
     async def get_thing_state(self, device_id: str) -> dict:
         await self.ensure_coolkit_token()
