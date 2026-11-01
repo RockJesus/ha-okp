@@ -56,6 +56,30 @@ def _md5(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 
+def _parse_expire(data: dict[str, Any]) -> int:
+    """Read the access-token expiry out of a CoolKit user-info response.
+
+    The field name differs between deployments (``at_expire_at``,
+    ``atExpiredTime``, ``expireAt``) and some report milliseconds. Getting this
+    wrong is not cosmetic: without a known expiry the integration falls back to
+    a fixed refresh interval, and if it refreshes *after* the token died the
+    renewal request is rejected - the token in the Authorization header has to
+    still be known to the gateway.
+    """
+    for key in ("at_expire_at", "atExpiredTime", "at_expired_at", "expireAt"):
+        raw = data.get(key)
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 10**11:  # milliseconds -> seconds
+            value //= 1000
+        return value
+    return 0
+
+
 class OkpApi:
     """Client for the OKP (Lefant/ThingClips) cloud."""
 
@@ -221,8 +245,7 @@ class OkpApi:
             self.last_rt_error = None
         self.coolkit_apikey = data.get("apikey") or self.coolkit_apikey
         self.coolkit_region = data.get("region") or self.coolkit_region
-        expire = data.get("at_expire_at")
-        self.coolkit_at_expire = int(expire) if expire else 0
+        self.coolkit_at_expire = _parse_expire(data)
         self.coolkit_refreshed_at = time.time()
         self.at_rejected = False
         self.session_source = "okplife"
@@ -344,9 +367,13 @@ class OkpApi:
         # metadata returned (some endpoints omit at_expire_at) and the token
         # is older than 12 hours. This is a safety net so a stale token never
         # keeps polling 401 forever.
+        # No known expiry: refresh hourly. The renewal endpoint only accepts an
+        # access token the gateway still knows, so waiting 12 hours (the old
+        # value) risked refreshing only after the token had already died, which
+        # turns a renewable session into a reauthentication prompt.
         stale = (
             not self.coolkit_refreshed_at
-            or time.time() - self.coolkit_refreshed_at > 12 * 3600
+            or time.time() - self.coolkit_refreshed_at > 3600
         )
         if self.coolkit_at and not self.at_rejected and not (
             (self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300)
