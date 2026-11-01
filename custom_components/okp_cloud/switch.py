@@ -1,4 +1,11 @@
-"""Switch platform for the OKP Cloud vacuum integration (carpet booster)."""
+"""Switch platform for the OKP Cloud vacuum integration.
+
+Two boolean dps are user-facing settings on this model family (the vendor's
+device-detail-info "pid_func_configs" table names them explicitly):
+
+* ``carpetBooster`` -> func "carpet_booster_switch"    (地毯增压)
+* ``dp31``          -> func "carpet_detection_switch"  (地毯检测, v1.3.0)
+"""
 from __future__ import annotations
 
 import logging
@@ -13,7 +20,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OkpApi, OkpApiError
-from .const import DOMAIN, SWITCH_REQUIRES_DP
+from .const import (
+    CARPET_DETECTION_DP,
+    CARPET_DETECTION_REQUIRES_DP,
+    DOMAIN,
+    SWITCH_REQUIRES_DP,
+)
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,26 +44,30 @@ async def async_setup_entry(
         coordinator = coordinators.get(third)
         if coordinator is None:
             continue
-        # Capability filter: only models exposing carpetBooster get the switch.
+        # Capability filter: only models exposing the dp get the switch. An
+        # empty params dict means "not known yet" - create the entity anyway.
         params = (coordinator.data or {}).get("params") or {}
-        if params.keys() and SWITCH_REQUIRES_DP not in params:
-            continue
-        entities.append(
-            OkpCarpetBoosterSwitch(
-                coordinator,
-                api,
-                third,
-                dev.get("name") or "OKP 扫地机器人",
-                dev.get("model"),
-            )
+        common = (
+            api,
+            third,
+            dev.get("name") or "OKP 扫地机器人",
+            dev.get("model"),
         )
+        if not params or SWITCH_REQUIRES_DP in params:
+            entities.append(OkpCarpetBoosterSwitch(coordinator, *common))
+        if not params or CARPET_DETECTION_REQUIRES_DP in params:
+            entities.append(OkpCarpetDetectionSwitch(coordinator, *common))
     async_add_entities(entities)
 
 
-class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
-    """Carpet booster (carpetBooster dp) on/off control."""
+class _OkpBoolSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
+    """Base for switches backed by a single boolean CoolKit dp."""
 
     _attr_has_entity_name = True
+    _dp_key: str = ""
+    _unique_suffix: str = ""
+    _icon: str = "mdi:toggle-switch"
+    _label: str = "OKP 开关"
 
     def __init__(
         self,
@@ -64,9 +80,9 @@ class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
         super().__init__(coordinator)
         self.api = api
         self.device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_carpet_booster"
-        self._attr_translation_key = "carpet_booster"
-        self._attr_icon = "mdi:layers"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self._unique_suffix}"
+        self._attr_translation_key = self._unique_suffix
+        self._attr_icon = self._icon
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,
@@ -82,7 +98,7 @@ class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         params = self.coordinator.data.get("params", {}) if self.coordinator.data else {}
-        value = params.get("carpetBooster")
+        value = params.get(self._dp_key)
         if value is None:
             return None
         return bool(value)
@@ -95,8 +111,31 @@ class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
 
     async def _set(self, on: bool) -> None:
         try:
-            await self.api.set_thing_params(self.device_id, {"carpetBooster": on})
+            await self.api.set_thing_params(self.device_id, {self._dp_key: on})
         except OkpApiError as err:
-            _LOGGER.warning("OKP set carpet booster failed: %s", err)
-            raise HomeAssistantError(f"OKP 设置地毯增压失败：{err}") from err
+            _LOGGER.warning("OKP set %s failed: %s", self._dp_key, err)
+            raise HomeAssistantError(f"OKP 设置{self._label}失败：{err}") from err
         await self.coordinator.async_request_refresh()
+
+
+class OkpCarpetBoosterSwitch(_OkpBoolSwitch):
+    """Carpet booster (carpetBooster dp): raise suction on carpets."""
+
+    _dp_key = "carpetBooster"
+    _unique_suffix = "carpet_booster"
+    _icon = "mdi:layers"
+    _label = "地毯增压"
+
+
+class OkpCarpetDetectionSwitch(_OkpBoolSwitch):
+    """Carpet detection (dp31): recognise carpet, clean it without mopping.
+
+    New in v1.3.0. The v3.4.0 app capture shows this dp driven from an ordinary
+    on/off setting ("地毯检测" in the app), so exposing it as a diagnostic
+    sensor only - what earlier builds did - hid a control the app has.
+    """
+
+    _dp_key = CARPET_DETECTION_DP
+    _unique_suffix = "carpet_detection"
+    _icon = "mdi:rug"
+    _label = "地毯检测"

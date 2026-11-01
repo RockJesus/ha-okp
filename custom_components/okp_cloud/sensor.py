@@ -13,8 +13,17 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, SENSOR_DP_REQUIREMENTS, VALUE_TO_MODE
+from .const import (
+    DOMAIN,
+    FAN_QUIET,
+    FAN_STANDARD,
+    FAN_STRONG,
+    SENSOR_DP_REQUIREMENTS,
+    VALUE_TO_MODE,
+)
 from .coordinator import OkpCoordinator
+
+WIND_TO_FAN_SPEED = {0: FAN_QUIET, 1: FAN_STANDARD, 2: FAN_STRONG}
 
 
 def _int(value: Any) -> int | None:
@@ -210,6 +219,33 @@ class OkpSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
     def native_value(self) -> Any:
         params = self.coordinator.data.get("params", {}) if self.coordinator.data else {}
         return self._value_fn(params)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """List the device-side schedules so they can be acted on.
+
+        v1.3.0: the ``timers`` dp is a cron-like array; the on/off count alone
+        tells you nothing about *which* schedule you are about to toggle. This
+        exposes every entry with the ``mId`` that the ``okp_cloud.set_timer``
+        service expects.
+        """
+        if self._key != "timers":
+            return None
+        schedules: list[dict[str, Any]] = []
+        for timer in self.coordinator.timers():
+            action = timer.get("do") or {}
+            mode = _int(action.get("mode"))
+            wind = _int(action.get("wind"))
+            schedules.append(
+                {
+                    "mId": timer.get("mId"),
+                    "enabled": bool(timer.get("enabled")),
+                    "repeat": timer.get("localAt") or timer.get("at"),
+                    "mode": VALUE_TO_MODE.get(mode, action.get("mode")),
+                    "fan_speed": WIND_TO_FAN_SPEED.get(wind, action.get("wind")),
+                }
+            )
+        return {"timers": schedules}
 
 
 class OkpMetaSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):

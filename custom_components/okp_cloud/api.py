@@ -552,15 +552,17 @@ class OkpApi:
     async def get_cleaning_history(self, device_id: str, num: int = 3) -> list[dict]:
         """Return recent cleaning runs (each with a cleaningId).
 
-        The `from` parameter is a millisecond epoch (13 digits) exactly as the
-        app sends it (e.g. 1785978545000). Older builds passed microseconds
-        (16 digits), which the server does not accept as "now", causing the
-        history/map endpoints to return empty data.
+        ``from`` is an upper-bound cursor in **microseconds**. The v3.4.0 app
+        sends a 16-digit value (e.g. 1793496616513000) and gets the newest
+        ``num`` runs; older builds here passed milliseconds (13 digits), which
+        the server interprets differently and answers with a much shorter -
+        and possibly stale - list. Match the app so the newest run is what
+        comes back.
         """
-        now_ms = int(time.time() * 1000)
+        now_us = int(time.time() * 1_000_000)
         body = await self._ck_get(
             f"{CK_BASE}{CK_ENDPOINT_SWEEP_HISTORY}"
-            f"?deviceid={device_id}&from={now_ms}&num={num}"
+            f"?deviceid={device_id}&from={now_us}&num={num}"
         )
         return (body.get("data") or {}).get("histories") or []
 

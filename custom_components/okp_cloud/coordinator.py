@@ -57,6 +57,9 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.map_updated_at: float = 0.0
         self.map_error: str | None = None
         self._map_check_ts: float = 0.0
+        # The map-id set currently being probed, so the "did the newest run
+        # change?" check does not re-fetch the same failing id every cycle.
+        self._map_candidate_key: str | None = None
         # Latest cleaning run from the history endpoint (cleaningId + opsTime
         # + cleaningLogs); backs the "last cleaning time" sensor.
         self.latest_history: dict | None = None
@@ -111,6 +114,75 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)
 
+    def timers(self) -> list[dict[str, Any]]:
+        """Device-side schedules (the ``timers`` dp), or an empty list."""
+        params = (self.data or {}).get("params") or {}
+        timers = params.get("timers")
+        return timers if isinstance(timers, list) else []
+
+    async def async_set_timer_enabled(self, mid: str, enabled: bool) -> bool:
+        """Enable/disable one schedule and write the whole array back.
+
+        The cloud has no per-schedule endpoint: the app rewrites the complete
+        ``timers`` dp with one entry's ``enabled`` flag flipped, and the robot
+        replaces its list with what it receives. That makes a stale read
+        dangerous - it would resurrect deleted schedules - so the list is
+        re-read from the cloud right before the write, and the result is
+        verified against it afterwards.
+        """
+        # 1. Fresh read: never write a list we read minutes ago.
+        await self.async_refresh()
+        timers = self.timers()
+        if not timers:
+            raise OkpApiError("device reports no schedules")
+
+        target = None
+        for timer in timers:
+            if str(timer.get("mId")) == str(mid):
+                target = timer
+                break
+        if target is None:
+            known = ", ".join(str(t.get("mId")) for t in timers)
+            raise OkpApiError(f"no schedule with mId {mid} (known: {known})")
+
+        original = {"enabled": target.get("enabled")}
+        wanted = 1 if enabled else 0
+        if int(target.get("enabled") or 0) == wanted:
+            _LOGGER.debug("OKP schedule %s already enabled=%s", mid, wanted)
+            return False
+
+        payload = []
+        for timer in timers:
+            entry = dict(timer)
+            if str(entry.get("mId")) == str(mid):
+                entry["enabled"] = wanted
+            payload.append(entry)
+
+        await self.api.set_thing_params(self.device_id, {"timers": payload})
+        await self.async_refresh()
+
+        # 3. Verify: same number of schedules, only the target flag changed.
+        after = self.timers()
+        if len(after) != len(timers):
+            raise OkpApiError(
+                f"schedule list changed unexpectedly ({len(timers)} -> {len(after)})"
+            )
+        for timer in after:
+            if str(timer.get("mId")) == str(mid):
+                if int(timer.get("enabled") or 0) != wanted:
+                    raise OkpApiError(
+                        f"schedule {mid} did not switch to enabled={wanted} "
+                        f"(still {timer.get('enabled')})"
+                    )
+                break
+        _LOGGER.info(
+            "OKP schedule %s enabled %s -> %s",
+            mid,
+            original["enabled"],
+            wanted,
+        )
+        return True
+
     def async_persist_tokens(self, force: bool = False) -> None:
         """Public wrapper used by the manual ``refresh_session`` service.
 
@@ -160,11 +232,34 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass.config_entries.async_update_entry(entry, data=new_data)
             _LOGGER.debug("OKP CoolKit tokens persisted to the config entry")
 
+    def _map_candidates(self, histories: list[dict]) -> list[str]:
+        """Map ids to try, newest run first (see _async_refresh_map).
+
+        The map endpoint is keyed by the *upload* id (the ``endUpload`` /
+        ``startUpload`` dp values, e.g. "015c"), not by the ``cleaningId`` of a
+        history record (e.g. "0125"). The v3.4.0 capture only ever asked for
+        upload ids, while this integration used to send cleaningId - which is
+        what produced the "405 NoSuchKey" map errors. History ids are kept as
+        a last resort so other firmware builds still work.
+        """
+        out: list[str] = []
+        params = (self.data or {}).get("params") or {}
+        for key in ("endUpload", "startUpload"):
+            value = params.get(key)
+            value = "" if value is None else str(value)
+            if value and value not in ("0000", "-") and value not in out:
+                out.append(value)
+        for record in histories:
+            cid = record.get("cleaningId")
+            if cid and str(cid) not in out:
+                out.append(str(cid))
+        return out[:4]
+
     async def _async_refresh_map(self) -> None:
         """Fetch the newest cleaning run map (low frequency).
 
         Probes the history endpoint at most every MAP_CHECK_SECONDS; pulls a
-        new map when the latest cleaningId changes or every
+        new map when the newest candidate id changes or every
         MAP_REFRESH_MINUTES. Failures are logged and never block the main
         poll cycle.
         """
@@ -180,32 +275,49 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.latest_history = None
                 self.map_error = "no cleaning history yet"
                 return
-            latest = None
-            for h in histories:
-                cid = h.get("cleaningId")
-                if cid:
-                    latest = cid
-                    break
-            if not latest:
+            candidates = self._map_candidates(histories)
+            if not candidates:
+                self.map_error = "no map id available yet"
                 return
-            due = latest != self.map_cleaning_id or (
+            newest = candidates[0]
+            due = newest != self._map_candidate_key or (
                 now - self.map_updated_at > MAP_REFRESH_MINUTES * 60
             )
             if not due:
                 return
-            paths = await self.api.get_cleaning_map(self.device_id, latest)
+            self._map_candidate_key = newest
+
+            paths: list[str] = []
+            used: str | None = None
+            last_error: str | None = None
+            for map_id in candidates:
+                try:
+                    found = await self.api.get_cleaning_map(self.device_id, map_id)
+                except OkpAuthError:
+                    # Real session problem: let the caller handle it.
+                    raise
+                except OkpApiError as err:
+                    # 405 NoSuchKey simply means that run's map is not uploaded
+                    # (or already expired); try the next id.
+                    last_error = str(err)
+                    continue
+                if found:
+                    paths = found
+                    used = map_id
+                    break
             if not paths:
-                self.map_error = "no map data for latest cleaning"
+                self.map_error = last_error or "no map data for the latest run"
                 return
+
             points = parse_map_paths(paths)
             if not points:
                 self.map_error = "map data empty"
                 return
             self.map_image = render_map_png(points)
-            self.map_cleaning_id = latest
+            self.map_cleaning_id = used
             self.map_updated_at = time.time()
             self.map_error = None
-            _LOGGER.debug("OKP map updated: %s (%d points)", latest, len(points))
+            _LOGGER.debug("OKP map updated: %s (%d points)", used, len(points))
         except (OkpApiError, OkpAuthError) as err:
             # Keep the previous image; retry next cycle.
             self.map_error = str(err)

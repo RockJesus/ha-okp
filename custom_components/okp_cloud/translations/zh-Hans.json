@@ -121,13 +121,21 @@
       "clean_mode": { "name": "清扫模式" }
     },
     "switch": {
-      "carpet_booster": { "name": "地毯增压" }
+      "carpet_booster": { "name": "地毯增压" },
+      "carpet_detection": { "name": "地毯检测" }
+    },
+    "button": {
+      "find_robot": { "name": "查找机器人" }
     },
     "camera": {
       "map": { "name": "清扫地图" }
     }
   },
   "services": {
+    "set_timer": {
+      "name": "启用/停用定时任务",
+      "description": "按 mId 启用或停用设备上的一条定时清扫任务。会先重新读取任务列表、只改目标项的 enabled，写入后回读校验。"
+    },
     "refresh_session": {
       "name": "手动续期云会话",
       "description": "立即用保存的刷新令牌（rt）换取新的访问令牌，并返回结果。用于排查「集成掉线」或验证会话是否已不再依赖手机 App。"

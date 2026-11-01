@@ -182,7 +182,12 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
         await self._set({"sweep": 0})
 
     async def async_stop(self, **kwargs: Any) -> None:
-        await self._set({"sweep": 0, "switch": 0})
+        # v1.3.0: send ``sweep: 0`` only. The old code also wrote
+        # ``switch: 0``, but the app never does that - ``switch`` is the unit's
+        # power state and the app keeps it at 1 for the whole session. Writing
+        # 0 risks powering the robot off, which would leave it unreachable
+        # from the cloud until someone presses the button on the unit.
+        await self._set({"sweep": 0})
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         # CoolKit has no dedicated "return" dp; stopping the sweep makes the

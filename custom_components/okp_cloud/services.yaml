@@ -4,3 +4,33 @@ refresh_session:
   name: 手动续期云会话
   description: 立即用保存的刷新令牌（rt）换取新的访问令牌，并返回会话状态。
   fields: {}
+
+set_timer:
+  name: 启用/停用定时任务
+  description: >-
+    启用或停用设备上的一条定时清扫任务。云端没有单独的定时任务接口，App 的做法是把
+    整组 timers 重写一遍；本服务会先重新读取当前任务列表，只改目标任务的 enabled，
+    写入后再回读校验，不会覆盖你在 App 里新加或删除的任务。
+    任务的 mId 见「启用的定时任务」传感器 timers 属性。
+  fields:
+    mid:
+      name: 任务 ID
+      description: 定时任务的 mId（定时任务传感器 timers 属性里的 mId 字段）。
+      required: true
+      example: "15ac9f57-5bb1-4b74-a417-bc8b57983d82"
+      selector:
+        text:
+    enabled:
+      name: 启用
+      description: 打开或关闭该任务。
+      required: true
+      default: true
+      selector:
+        boolean:
+    device_id:
+      name: 设备
+      description: 有多台机器人时才需要指定，值为 CoolKit 设备 ID（实体 ID 中间那一段）。
+      required: false
+      example: "100258a68a"
+      selector:
+        text:

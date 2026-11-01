@@ -9,6 +9,7 @@ PLATFORMS = [
     Platform.CAMERA,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.BUTTON,
 ]
 
 CONF_ACCOUNT = "account"
@@ -50,6 +51,20 @@ CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 # token to expire, which is the only way to prove the session is independent
 # of the phone app.
 SERVICE_REFRESH_SESSION = "refresh_session"
+# v1.3.0: enable/disable one device-side schedule (the ``timers`` dp) without
+# touching the others. The app does the same thing: it rewrites the whole
+# ``timers`` array with a single entry's ``enabled`` flag flipped.
+SERVICE_SET_TIMER = "set_timer"
+
+# v1.3.0: dps that the v3.4.0 app capture showed as user-facing settings
+# rather than raw diagnostics. Their names come from the vendor's own
+# device-detail-info "pid_func_configs" table for this model:
+#   dp31          -> func "carpet_detection_switch"  (地毯检测)
+#   carpetBooster -> func "carpet_booster_switch"    (地毯增压)
+#   call          -> func-less dp: writing 1 makes the robot beep ("查找机器人")
+CARPET_DETECTION_DP = "dp31"
+CALL_DP = "call"
+CARPET_DETECTION_REQUIRES_DP = "dp31"
 
 # Map refresh
 MAP_REFRESH_MINUTES = 30

@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
@@ -17,6 +18,7 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     SERVICE_REFRESH_SESSION,
+    SERVICE_SET_TIMER,
 )
 from .coordinator import OkpCoordinator
 
@@ -95,16 +97,77 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
     return {"entries": entries}
 
 
+def _pick_coordinator(hass: HomeAssistant, device_id: str | None) -> OkpCoordinator:
+    """Resolve the coordinator a service call targets.
+
+    With a single robot (the common case) no target is needed; with several,
+    the caller passes ``device_id`` (the CoolKit id, as used in entity ids).
+    """
+    found: list[tuple[str, OkpCoordinator]] = []
+    for store in (hass.data.get(DOMAIN) or {}).values():
+        if not isinstance(store, dict):
+            continue
+        for key, coordinator in (store.get("coordinators") or {}).items():
+            found.append((key, coordinator))
+    if device_id:
+        for key, coordinator in found:
+            if key == device_id:
+                return coordinator
+        raise ValueError(f"no OKP device with id {device_id}")
+    if len(found) == 1:
+        return found[0][1]
+    if not found:
+        raise ValueError("the OKP Cloud integration is not set up")
+    known = ", ".join(key for key, _ in found)
+    raise ValueError(f"several OKP devices, pass device_id (one of: {known})")
+
+
+async def _async_set_timer(call: ServiceCall) -> dict[str, Any]:
+    """Enable or disable one device-side schedule.
+
+    v1.3.0: the app's scheduled-clean screen toggles a schedule by rewriting
+    the whole ``timers`` dp; there is no per-schedule cloud endpoint. This
+    service does the same read-modify-write but re-reads the list right before
+    writing and verifies the result, so an out-of-date snapshot cannot
+    resurrect schedules that were deleted in the app.
+    """
+    hass: HomeAssistant = call.hass
+    data = call.data
+    mid = str(data.get("mid") or "").strip()
+    if not mid:
+        raise ValueError("mid is required (see the timers sensor attributes)")
+    enabled = bool(data.get("enabled"))
+    coordinator = _pick_coordinator(hass, data.get("device_id"))
+
+    try:
+        changed = await coordinator.async_set_timer_enabled(mid, enabled)
+    except (OkpApiError, OkpAuthError) as err:
+        raise HomeAssistantError(f"OKP 定时任务操作失败：{err}") from err
+    timers = coordinator.timers()
+    return {
+        "mid": mid,
+        "enabled": enabled,
+        "changed": changed,
+        "timers": timers,
+    }
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register the integration services once."""
-    if hass.services.has_service(DOMAIN, SERVICE_REFRESH_SESSION):
-        return
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REFRESH_SESSION,
-        _async_refresh_session,
-        supports_response=SupportsResponse.ONLY,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_SESSION):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_REFRESH_SESSION,
+            _async_refresh_session,
+            supports_response=SupportsResponse.ONLY,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_TIMER):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_TIMER,
+            _async_set_timer,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
 
 def _device_list(entry: ConfigEntry) -> list[dict]:
