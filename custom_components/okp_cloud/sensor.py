@@ -459,6 +459,9 @@ class OkpRealtimeSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
             {
                 "host": realtime.host,
                 "socket_open": realtime.is_open,
+                "reconnect_pending": realtime.diagnostics()["reconnect_pending"],
+                "reconnect_calls": realtime.reconnect_calls,
+                "read_iterations": realtime.read_iterations,
                 "connected_since": _iso(realtime.connected_since),
                 "last_message_at": _iso(realtime.last_message_at),
                 "messages_received": realtime.messages,

@@ -93,6 +93,9 @@ class OkpRealtime:
         self._reconnect_at = 0.0
         # True when the read loop returned because we asked it to.
         self._ended_by_request = False
+        # Instrumentation: proves whether a reconnect request reached the loop.
+        self.reconnect_calls = 0
+        self.read_iterations = 0
         # Diagnostic state (read by the realtime sensor).
         self.state = STATE_IDLE
         self.host: str | None = None
@@ -146,6 +149,7 @@ class OkpRealtime:
         self._reconnect_requested = True
         self._closed_by_us = True
         self._reconnect_at = time.time()
+        self.reconnect_calls += 1
 
     async def _async_close_ws(self) -> None:
         ws = self._ws
@@ -378,6 +382,7 @@ class OkpRealtime:
         last_rx = time.monotonic()
         poll = max(2.0, min(10.0, hb_interval / 4))
         while not self._closing:
+            self.read_iterations += 1
             if self._reconnect_requested:
                 self._ended_by_request = True
                 return
@@ -463,6 +468,8 @@ class OkpRealtime:
             "host": self.host,
             "socket_open": self.is_open,
             "reconnect_pending": self._reconnect_requested,
+            "reconnect_calls": self.reconnect_calls,
+            "read_iterations": self.read_iterations,
             "connected_since": self.connected_since,
             "last_message_at": self.last_message_at,
             "messages_received": self.messages,
