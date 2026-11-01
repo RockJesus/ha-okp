@@ -15,7 +15,8 @@
 
 - 🔐 **用户名 + 密码登录** OKP 云（`api-cn.okplife.com`），自动完成请求签名与令牌管理
 - 🏠 自动发现账号下的家庭与扫地机器人设备
-- 📡 3 分钟状态轮询：电量、清扫状态、工作状态、故障码、信号强度、固件版本、清扫面积/次数、定时任务摘要、最近清扫时间、固件更新检查等
+- ⚡ **实时推送**：像 App 一样保持一条 CoolKit WebSocket 长连接，机器上报的状态 1 秒内进 HA（清扫中尤其明显）；断线自动重连，连不上就退回轮询，功能不受影响
+- 📡 3 分钟状态轮询兜底：电量、清扫状态、工作状态、故障码、信号强度、固件版本、清扫面积/次数、定时任务摘要、最近清扫时间、固件更新检查等
 - 🎮 完整控制：开始清扫 / 暂停 / 停止 / 回充 / 三档吸力（安静 · 标准 · 强力）/ 清扫模式（智能 · 随机 · 沿墙 · 螺旋）/ 地毯增压开关
 - 🗺️ 清扫地图（camera 实体，PNG 渲染，5 分钟探测 / 30 分钟自动刷新）
 - 🔄 CoolKit 令牌过期自动静默刷新；**不自动密码重登**（OKP 云单会话，重登会顶掉手机 App）——令牌彻底失效时自动弹窗重新认证
@@ -65,8 +66,25 @@
 | `sensor.okp_cloud_*_online` | 传感器 | 在线状态（诊断） |
 | `camera.okp_cloud_*_cleaning_map` | 摄像头 | 清扫地图（PNG 渲染） |
 | `sensor.okp_cloud_*_firmware_update` | 传感器 | 固件更新检查（OTA，有新版时显示目标版本，否则「已是最新」） |
+| `sensor.okp_cloud_*_realtime` | 传感器 | 实时推送通道状态（诊断，见下） |
 
 > 扫地机实体还附带扩展属性：`work_state`、`clean_mode`、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online`、`last_error`。
+
+## ⚡ 实时推送
+
+集成会像 App 一样，向云端的区域节点开一条 WebSocket 长连接（`dispatch/app` → `wss://…/api/ws` → `userOnline`），
+设备每次上报的 dp 变化立刻合并进实体状态，**不再等 3 分钟轮询**。这条通道是只读的——所有控制仍然走
+HTTP 接口，所以它不可能把机器人置成 App 里做不出来的状态。
+
+3 分钟轮询并未取消，仍然是兜底：连接断了、被路由器掐了、账号会话异常，都只是"慢回 3 分钟"，实体照常工作。
+连续推送时也至少每 15 分钟强制做一次 HTTP 读取，保证令牌续期、地图刷新、OTA 检查不会饿死。
+
+`sensor.okp_cloud_*_realtime` 会显示当前通道状态：`connected` 已连接 / `connecting` 连接中 /
+`disconnected` 断线重连中 / `error` 连接失败（仍在轮询） / `disabled` 未启用。属性里有
+`host`（当前节点）、`device_pushes`（收到的设备推送条数）、`last_push_at`、`last_poll_at`、`last_error`。
+
+如果测试发现这条连接和手机 App 抢会话（打开 App 后推送变 `error` 或反复重连），在
+**「设置 → 设备与服务 → OKP 扫地机器人 → 配置」** 里关掉「启用实时推送」即可，其他功能完全不变。
 
 ## 🎛️ 支持设备
 
@@ -81,8 +99,13 @@
 - 登录：`POST /v5/client/login-with-password`（`password` + `account`）
 - 签名：`MD5(client-id=...&timestamp=<ms>&key=...)`——自 APK `TokenInterceptor` 指令级逆向，43/43 个抓包请求复算命中
 - 设备：`/v2/home/list` → `/v9/home/device-list` → `/v5/home/device-detail-info`
-- 状态：`/v1/coolkit/refresh-access-token` 换取 CoolKit `at` → `POST cn-apia.coolkit.cn/v2/device/thing`
-- 控制：`POST cn-apia.coolkit.cn/v2/device/thing/update`
+- 令牌：`GET /v1/coolkit/get-user-info`（okplife，带签名头）换取 CoolKit `at`/`rt`/`apikey`；
+  续期走 `POST cn-apia.coolkit.cn/v2/user/refresh`（body `{"rt":…}`，且**必须**带 `Authorization: Bearer <hex>`）
+- 状态：`POST cn-apia.coolkit.cn/v2/device/thing`（body `{"thingList":[…]}`）
+- 控制：`POST cn-apia.coolkit.cn/v2/device/thing/status`（body `{"type":1,"id":…,"params":{…}}`）
+- 实时：`GET cn-dispa.coolkit.cn/dispatch/app` 取节点 → `wss://<domain>:443/api/ws` →
+  发 `{"action":"userOnline","apikey","appid","at","version":8}` → 回 `{"error":0,"config":{"hbInterval":145}}` →
+  约每 72 秒发文本 `ping` 收 `pong`；设备上报为 `{"action":"update","userAgent":"device","params":{…}}`
 
 </details>
 
@@ -94,6 +117,7 @@
 
 ## 📝 更新日志
 
+- v1.3.3（2026-11-01）：**接入和 App 一样的 WebSocket 实时推送**。此前所有实体都靠 180 秒轮询，清扫过程中状态最多晚 3 分钟才反映到 HA；现在按抓包还原的协议（`dispatch/app` 取节点 → `wss://<domain>/api/ws` → `userOnline` 握手 → 每 72 秒 `ping`/`pong` → 设备 `update` 帧）开一条长连接，设备已上报的 dp 变化秒级合并进实体。设计上只读、只做加速：控制仍走 HTTP，轮询保留做兜底与令牌/地图/OTA 维护，连续推送时也至少每 15 分钟强读一次；握手失败按 0/5/15/30/60/120/300 秒退避重连，失败只在日志里说一次。新增诊断传感器 `sensor.okp_cloud_*_realtime`（状态 + `host`/`device_pushes`/`last_push_at`/`last_poll_at`/`last_error`），以及「配置」里的**启用实时推送**开关（万一与手机 App 抢会话可一键退回纯轮询，无需删除集成）。`refresh_session` 服务响应新增 `realtime` 字段，令牌续期后会主动重连以换用新令牌。顺带修正 README 技术说明里过时的控制端点（`thing/update` → `thing/status`）与令牌获取路径（`refresh-access-token` → `get-user-info` → `user/refresh`）
 - v1.3.2（2026-11-01）：修掉「控制完要等 3 分钟界面才变」的体验问题。各实体读的都是轮询缓存，而云端回显设备状态有几秒延迟，写完立刻读只会读到旧值，于是 `vacuum.set_fan_speed`／`switch` 之类操作后界面长时间不动（`vacuum` 平台此前压根没有触发刷新，只能等下一轮 180 秒轮询）。现在所有控制动作统一走 `coordinator.async_schedule_refresh()`：写完安排两次延迟回读（约 4 秒、12 秒），既不会读太早，也不用等整轮轮询。实测：写 `quiet` 后约 15 秒 `fan_speed` 已变为 `quiet`，地毯增压同样能即时回读
 - v1.3.1（2026-11-01）：给地图相机关联诊断属性 `map_id` / `map_updated_at` / `last_error`。地图出问题时相机只会默默继续给旧图，界面上看不出这张图是哪一次清扫的、是不是已经过期，现在能直接确认（`map_id` 是实际命中的上传 id，`last_error` 会写出 `405 NoSuchKey` 这类原因）。同时修正 v1.3.0 日志里两处过度表述：地图 id 与历史 `from` 单位这两条，实测原本也能正常工作，改动属于「与 App 行为完全对齐 + 提高地图新鲜度」，不是修复既有故障
 - v1.3.0（2026-11-01）：按抓到的 App 全功能 HAR（Reqable，v3.4.0）逐条比对后补强。**修复**：① `vacuum.stop` 不再写 `switch: 0` —— App 全程把 `switch` 保持为 1，它是整机电源态，写 0 有把机器人关机、之后云控彻底失联的风险，现在与 App 一致只发 `sweep: 0`；② 地图取图改为**上传 id 优先**（`startUpload`/`endUpload`，如 `015c`），`cleaningId`（如 `0125`）兜底 —— App 只按上传 id 取图，而上传 id 是按次生成的，最近一次常常还没传完就返回 `405 NoSuchKey`。现在按「新→旧」依次尝试、自动跳过没准备好的那次（实测本账号两种 id 都能出图，属于对齐 App + 提高新鲜度，不是原有故障）；③ 历史接口的 `from` 改为**微秒**，与 App 的 16 位时间戳一致（两种单位服务端都接受，改后与 App 行为完全相同）。**新增**：④ 开关「地毯检测」（`dp31`）—— 厂商设备详情里的功能名就是 `carpet_detection_switch`，之前只做成诊断传感器，App 里它是个正常开关；⑤ 按钮「查找机器人」（写 `call: 1`，机器响铃）；⑥ 服务 `okp_cloud.set_timer`（按 `mId` 启停一条定时任务，先重读整组再改单条并回读校验，不会覆盖 App 里新增/删除的任务）；⑦ 定时任务传感器的 `timers` 属性列出每条任务的 `mId`／周期／模式／吸力，供上面的服务直接引用（已验证：`wind` 枚举 0/1/2、`mode` 枚举 `smart/random/wall_follow/spiral` 与集成原有映射一致）

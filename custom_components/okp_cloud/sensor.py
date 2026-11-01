@@ -46,6 +46,13 @@ def _str(value: Any) -> str | None:
     return str(value)
 
 
+def _iso(timestamp: float | None) -> str | None:
+    """Format an epoch timestamp for a diagnostic attribute."""
+    if not timestamp:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
 def _on_off(value: Any) -> str | None:
     """Map a CoolKit bool dp to on/off (translated via translations state)."""
     if value is None:
@@ -172,6 +179,7 @@ async def async_setup_entry(
             )
         entities.append(OkpOnlineSensor(coordinator, third, name, model))
         entities.append(OkpSessionSensor(coordinator, third, name, model))
+        entities.append(OkpRealtimeSensor(coordinator, third, name, model))
     async_add_entities(entities)
 
 
@@ -391,3 +399,70 @@ class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
             "auth_failures": self.coordinator.auth_failure_count,
             "last_error": self.coordinator.last_error,
         }
+
+
+class OkpRealtimeSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
+    """Whether state arrives by push (``connected``) or only by polling.
+
+    ``connected``    - the CoolKit socket is open; device changes show up in
+                       about a second and the 180 s poll is just a safety net.
+    ``connecting``   - handshake / dispatch in flight.
+    ``disconnected`` - the socket dropped, a reconnect is scheduled.
+    ``error``        - the last attempt failed (the reason is in the
+                       attributes); polling continues to work.
+    ``disabled``     - no CoolKit token/apikey to open a socket with yet.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "realtime"
+    _attr_icon = "mdi:access-point-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: OkpCoordinator,
+        device_id: str,
+        name: str,
+        model: str | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_realtime"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=name,
+            manufacturer="OKP",
+            model=model or "OKP 扫地机器人",
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always report: this sensor explains why updates are slow."""
+        return True
+
+    @property
+    def native_value(self) -> str:
+        realtime = self.coordinator.realtime
+        return realtime.state if realtime is not None else "disabled"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        realtime = self.coordinator.realtime
+        attrs: dict[str, Any] = {
+            "device_pushes": self.coordinator.push_count,
+            "last_push_at": _iso(self.coordinator.last_push_at),
+            "last_poll_at": _iso(self.coordinator.last_poll_at),
+        }
+        if realtime is None:
+            attrs["note"] = "realtime channel not started"
+            return attrs
+        attrs.update(
+            {
+                "host": realtime.host,
+                "connected_since": _iso(realtime.connected_since),
+                "last_message_at": _iso(realtime.last_message_at),
+                "messages_received": realtime.messages,
+                "reconnects": realtime.reconnects,
+                "last_error": realtime.last_error,
+            }
+        )
+        return attrs

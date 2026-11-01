@@ -8,13 +8,19 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
-from .const import CONF_ACCOUNT, DOMAIN
+from .const import CONF_ACCOUNT, CONF_REALTIME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,10 +32,43 @@ DATA_SCHEMA = vol.Schema(
 )
 
 
+class OkpOptionsFlow(OptionsFlow):
+    """Options: turn the realtime push channel on or off.
+
+    The socket is additive - entities stay correct without it - but it is the
+    one part of this integration that talks to the cloud over a long-lived
+    connection instead of short requests. Somebody whose account does not
+    tolerate a second socket (or who simply prefers polling) can switch it off
+    here instead of removing the integration.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_REALTIME,
+                        default=self.config_entry.options.get(CONF_REALTIME, True),
+                    ): cv.boolean,
+                }
+            ),
+        )
+
+
 class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for OKP Cloud."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OkpOptionsFlow:
+        return OkpOptionsFlow()
 
     async def _validate_login(
         self, account: str, password: str

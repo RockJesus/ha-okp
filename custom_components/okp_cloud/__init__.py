@@ -15,12 +15,14 @@ from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import (
     AT_LIFETIME_FALLBACK_SECONDS,
     CONF_PASSWORD,
+    CONF_REALTIME,
     DOMAIN,
     PLATFORMS,
     SERVICE_REFRESH_SESSION,
     SERVICE_SET_TIMER,
 )
 from .coordinator import OkpCoordinator
+from .ws import OkpRealtime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
             continue
         api: OkpApi = store["api"]
         coordinators: dict[str, OkpCoordinator] = store.get("coordinators") or {}
+        realtime: OkpRealtime | None = store.get("realtime")
         refreshed_by: str | None = None
         error: str | None = None
 
@@ -68,6 +71,10 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
         if refreshed_by:
             for coordinator in coordinators.values():
                 coordinator.async_persist_tokens(force=True)
+            # The open socket still holds the previous access token; drop it so
+            # the next iteration handshakes with the new one.
+            if realtime is not None:
+                realtime.async_reconnect()
 
         entries.append(
             {
@@ -86,6 +93,7 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 ),
                 "refresh_fields": api.last_refresh_fields,
                 "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
+                "realtime": realtime.state if realtime is not None else None,
                 "error": error,
             }
         )
@@ -285,16 +293,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api": api,
         "coordinators": coordinators,
     }
+
+    # v1.3.3: open the realtime socket the v3.4.0 app uses, so a robot that is
+    # cleaning shows up in Home Assistant within a second instead of within
+    # three minutes. It is a pure accelerator: the poll below keeps running and
+    # everything still works when the socket cannot be established.
+    realtime: OkpRealtime | None = None
+    if coordinators and entry.options.get(CONF_REALTIME, True):
+        realtime = OkpRealtime(hass, api, coordinators)
+        for coordinator in coordinators.values():
+            coordinator.realtime = realtime
+        hass.data[DOMAIN][entry.entry_id]["realtime"] = realtime
+        realtime.async_start()
+
+    # Options (currently only the realtime toggle) are applied by reloading:
+    # starting/stopping the socket in place would need the platforms to pick up
+    # a new coordinator, and a reload is cheap for a cloud integration.
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        store = hass.data[DOMAIN].pop(entry.entry_id, None) or {}
+        realtime = store.get("realtime")
+        if realtime is not None:
+            # Close the socket before dropping the entry, otherwise the task
+            # keeps receiving pushes for coordinators that no longer exist.
+            await realtime.async_stop()
         # Session is created via async_create_clientsession(hass) and is
         # managed by Home Assistant; integrations must NOT close it
         # (deprecated since HA 2026.x, will fail in 2027.9).
-        hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok

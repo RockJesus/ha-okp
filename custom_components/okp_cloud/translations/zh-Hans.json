@@ -45,6 +45,17 @@
       "reconfigure_successful": "配置已更新"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OKP 集成选项",
+        "description": "实时推送：与 App 一样保持一条 WebSocket 长连接，清扫过程中状态在 1 秒内更新。关闭后只用 3 分钟轮询，功能不受影响。",
+        "data": {
+          "realtime": "启用实时推送"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "work_state": {
@@ -92,6 +103,17 @@
           "okplife": "依赖登录令牌（App 登录会顶掉）",
           "stale": "需要重新认证一次",
           "expired": "已失效"
+        }
+      },
+      "realtime": {
+        "name": "实时推送",
+        "state": {
+          "idle": "未启动",
+          "disabled": "未启用（缺少凭据）",
+          "connecting": "连接中",
+          "connected": "已连接（秒级推送）",
+          "disconnected": "已断开（重连中）",
+          "error": "连接失败（仍在轮询）"
         }
       },
       "dp31": {

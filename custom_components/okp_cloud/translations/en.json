@@ -45,6 +45,17 @@
       "reconfigure_successful": "Configuration updated"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OKP options",
+        "description": "Realtime push keeps a WebSocket open, like the app does, so state changes show up within a second while the robot cleans. Turning it off falls back to 3-minute polling; nothing else changes.",
+        "data": {
+          "realtime": "Enable realtime push"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "work_state": {
@@ -92,6 +103,17 @@
           "okplife": "Depends on the login token (app logins invalidate it)",
           "stale": "Re-authentication needed",
           "expired": "Expired"
+        }
+      },
+      "realtime": {
+        "name": "Realtime push",
+        "state": {
+          "idle": "Not started",
+          "disabled": "Disabled (no credentials)",
+          "connecting": "Connecting",
+          "connected": "Connected (push)",
+          "disconnected": "Disconnected (retrying)",
+          "error": "Connection failed (still polling)"
         }
       },
       "dp31": {

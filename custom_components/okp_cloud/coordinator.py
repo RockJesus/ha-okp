@@ -7,7 +7,7 @@ import time
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OkpApi, OkpApiError, OkpAuthError, OkpRefreshThrottled
@@ -18,6 +18,7 @@ from .const import (
     MAP_HISTORY_NUM,
     MAP_REFRESH_MINUTES,
     OTA_CHECK_SECONDS,
+    PUSH_POLL_GUARD_SECONDS,
     REAUTH_AFTER_FAILURES,
     RELOGIN_COOLDOWN_SECONDS,
 )
@@ -79,6 +80,14 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Last auth error already logged, so a persistent failure writes one
         # line instead of one every poll cycle.
         self._last_auth_log: str | None = None
+        # v1.3.3: realtime socket feeding this coordinator (set by __init__.py).
+        self.realtime = None
+        # Push bookkeeping, surfaced by the realtime sensor.
+        self.push_count = 0
+        self.last_push_at: float = 0.0
+        self.last_poll_at: float = 0.0
+        # When a push last asked for a forced HTTP read (see async_apply_push).
+        self._last_push_poll: float = 0.0
 
     async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
         """Ask Home Assistant to start the reauth flow (user enters password).
@@ -130,6 +139,51 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for delay in delays:
             self.hass.async_create_task(_later(delay))
+
+    @callback
+    def async_apply_push(self, params: dict[str, Any]) -> None:
+        """Merge a device-pushed dp set and notify entities immediately.
+
+        The socket carries either what changed (``{"dp31": true}``) or a full
+        snapshot (every dp after a state transition), so the incoming keys are
+        merged over the last HTTP read instead of replacing it. No cloud
+        request is made - this path exists to avoid polling - and the 180 s
+        poll still reconciles anything the socket missed while it was down.
+        """
+        if not isinstance(params, dict) or not params or not self.data:
+            return
+        item = dict(self.data.get("item") or {})
+        merged = dict(item.get("params") or {})
+        merged.update(params)
+        item["params"] = merged
+        new_data = dict(self.data)
+        new_data["item"] = item
+        new_data["params"] = merged
+        if "fwVersion" in merged:
+            new_data["fw_version"] = merged["fwVersion"]
+        # A push can only come from a device the cloud is talking to.
+        new_data["online"] = True
+
+        self.push_count += 1
+        self.last_push_at = time.time()
+        if "endUpload" in params:
+            # The run's map is (about to be) uploaded; let the next poll probe
+            # for it without waiting out the 5-minute map throttle.
+            self._map_check_ts = 0.0
+
+        # async_set_updated_data() marks the cycle healthy and reschedules the
+        # poll - which is what we want, except that a robot pushing every few
+        # seconds would then never be polled again. Force a real HTTP read at
+        # least every PUSH_POLL_GUARD_SECONDS so the token, the map and the OTA
+        # probe keep running.
+        self.async_set_updated_data(new_data)
+        now = time.time()
+        if (
+            now - self.last_poll_at > PUSH_POLL_GUARD_SECONDS
+            and now - self._last_push_poll > PUSH_POLL_GUARD_SECONDS / 2
+        ):
+            self._last_push_poll = now
+            self.hass.async_create_task(self.async_request_refresh())
 
     def timers(self) -> list[dict[str, Any]]:
         """Device-side schedules (the ``timers`` dp), or an empty list."""
@@ -381,6 +435,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
+        self.last_poll_at = time.time()
         try:
             item = await self.api.get_thing_state(self.device_id)
         except OkpRefreshThrottled as err:

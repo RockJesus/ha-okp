@@ -125,6 +125,11 @@ class OkpApi:
 
     # -- low level helpers ------------------------------------------------
 
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        """The shared aiohttp session (the realtime socket uses it too)."""
+        return self._session
+
     def _headers(self, auth: bool = False) -> dict[str, str]:
         ts = str(int(time.time() * 1000))
         sign = _md5(f"client-id={SIGN_CLIENT_ID}&timestamp={ts}&key={SIGN_KEY}")

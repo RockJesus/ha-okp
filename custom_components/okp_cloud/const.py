@@ -14,6 +14,8 @@ PLATFORMS = [
 
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
+# v1.3.3: options key for the realtime push channel (default on).
+CONF_REALTIME = "realtime"
 
 # okplife REST API
 API_BASE = "https://api-cn.okplife.com"
@@ -65,6 +67,25 @@ SERVICE_SET_TIMER = "set_timer"
 CARPET_DETECTION_DP = "dp31"
 CALL_DP = "call"
 CARPET_DETECTION_REQUIRES_DP = "dp31"
+
+# v1.3.3: realtime push channel (the v3.4.0 app keeps a websocket open
+# instead of polling). Read from the app capture: dispatch/app hands out the
+# regional node, the socket lives at /api/ws, and the handshake is a
+# "userOnline" frame answered with {"error":0,"config":{"hbInterval":145}}.
+WS_DISPATCH_URL = "https://cn-dispa.coolkit.cn/dispatch/app"
+WS_DISPATCH_URL_TEMPLATE = "https://{region}-dispa.coolkit.{suffix}/dispatch/app"
+WS_PATH = "/api/ws"
+WS_USER_VERSION = 8
+WS_HB_INTERVAL_FALLBACK = 145
+WS_HANDSHAKE_TIMEOUT = 15
+# Reconnect backoff, in seconds, indexed by consecutive failures. The last
+# value repeats. A socket that stayed up for more than two minutes resets the
+# index, so a nightly router reboot does not leave a 5-minute gap behind.
+WS_RECONNECT_DELAYS = (0, 5, 15, 30, 60, 120, 300)
+# How long the socket may keep replacing the poll with pushes before a real
+# HTTP read is forced in. The poll is still the only thing that renews the
+# token, refreshes the map and probes for firmware, so it must not starve.
+PUSH_POLL_GUARD_SECONDS = 900
 
 # Map refresh
 MAP_REFRESH_MINUTES = 30
