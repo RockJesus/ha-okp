@@ -83,6 +83,9 @@ class OkpApi:
         self.last_rt_error: str | None = None
         # Only warn once per process when okplife hands out at-only credentials.
         self._warned_no_rt: bool = False
+        # Set when CoolKit rejected the access token. The token itself is kept
+        # (see _mark_at_rejected) - only the "still valid" belief is dropped.
+        self.at_rejected: bool = False
 
     # -- low level helpers ------------------------------------------------
 
@@ -185,6 +188,17 @@ class OkpApi:
 
     # -- CoolKit -----------------------------------------------------------
 
+    def _mark_at_rejected(self) -> None:
+        """Note that CoolKit rejected the access token, without dropping it.
+
+        The value is deliberately kept: the refresh endpoint takes it in the
+        Authorization header, so throwing it away is what turned a renewable
+        session into one that needed a manual reauth. Only the expiry hint and
+        the "valid" flag are cleared.
+        """
+        self.at_rejected = True
+        self.coolkit_at_expire = 0
+
     async def refresh_coolkit_token(self) -> None:
         self._last_refresh_try = time.time()
         # v1.2.0: the app obtains CoolKit credentials from
@@ -210,6 +224,7 @@ class OkpApi:
         expire = data.get("at_expire_at")
         self.coolkit_at_expire = int(expire) if expire else 0
         self.coolkit_refreshed_at = time.time()
+        self.at_rejected = False
         self.session_source = "okplife"
         if not self.coolkit_rt:
             if not self._warned_no_rt:
@@ -224,13 +239,12 @@ class OkpApi:
     async def refresh_coolkit_by_rt(self) -> bool:
         """Renew the CoolKit session with the CoolKit refresh token.
 
-        CoolKit has its own renewal endpoint, and it is the only one that does
-        not depend on the OKP access token: the OKP login token lives for a
-        few hours and okplife exposes no refresh route for it, so an
-        integration that only knows how to ask okplife for a new CoolKit token
-        goes dead every few hours and needs the user to type the password
-        again. The refresh token survives that (and HA restarts, because it is
-        persisted in the config entry).
+        This is the only renewal path that does not depend on the OKP access
+        token: the OKP login token lives for a few hours, okplife exposes no
+        refresh route for it, and every login into the phone app invalidates
+        it. The CoolKit refresh token survives all of that (and HA restarts,
+        because it is persisted in the config entry), so renewing with it is
+        what keeps the integration and the phone app out of each other's way.
 
         Returns True when a new token was obtained, False when there is no
         refresh token to use (caller should fall back to okplife).
@@ -239,61 +253,91 @@ class OkpApi:
             self.last_rt_error = "no refresh token stored in the config entry"
             return False
         self._last_refresh_try = time.time()
-        headers = {
-            "x-ck-appid": CK_APP_ID,
-            "domain-name": CK_DOMAIN,
-            "content-type": "application/json",
-        }
-        try:
-            async with self._session.post(
-                f"{CK_BASE}{CK_ENDPOINT_USER_REFRESH}",
-                json={"rt": self.coolkit_rt},
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=20),
-            ) as resp:
-                body = await resp.json(content_type=None)
-        except aiohttp.ClientError as err:
-            raise OkpApiError(f"coolkit refresh network error: {err}") from err
-        except ValueError as err:
-            raise OkpApiError(f"bad response from coolkit refresh: {err}") from err
-        if body.get("error"):
-            error = body.get("error")
-            msg = body.get("msg") or body.get("message") or "unknown"
-            self.last_rt_error = f"{error}: {msg}"
-            if error in (401, 402) or (error == 403 and "rt" in str(msg).lower()):
-                # The cloud rejected the refresh token itself. Drop it so the
-                # caller stops retrying and falls back to the okplife route.
-                # Any other 403 (e.g. "api not found", a bad appid or a route
-                # change) says nothing about the token, so keep it - throwing
-                # it away would permanently give up the only session that does
-                # not depend on the phone app.
-                self.coolkit_rt = None
-                raise OkpAuthError(f"coolkit refresh {error}: {msg}")
-            raise OkpApiError(f"coolkit refresh error {error}: {msg}")
-        data = body.get("data") or {}
-        at = data.get("at")
-        if not at:
-            raise OkpApiError("coolkit refresh returned no at")
-        self.coolkit_at = at
-        self.coolkit_rt = data.get("rt") or self.coolkit_rt
-        expire = data.get("atExpiredTime") or data.get("at_expire_at")
-        if expire:
+        # The gateway requires an Authorization header here, of the form
+        # "Bearer <hex>"; without it every call fails with
+        # 400 "authorization" is required. That is why renewal never worked
+        # before: the error was swallowed at debug level and the integration
+        # silently fell back to the okplife route every single time. Which hex
+        # value the gateway accepts is undocumented - the access token is the
+        # natural choice, but it is usually the thing that expired, so the
+        # refresh token is tried as a second candidate.
+        candidates: list[tuple[str, str]] = []
+        if self.coolkit_at:
+            candidates.append(("Bearer " + self.coolkit_at, "access token"))
+        candidates.append(("Bearer " + self.coolkit_rt, "refresh token"))
+
+        last_error: str | None = None
+        for auth_value, label in candidates:
+            headers = {
+                "authorization": auth_value,
+                "x-ck-appid": CK_APP_ID,
+                "domain-name": CK_DOMAIN,
+                "content-type": "application/json",
+            }
             try:
-                expire = int(expire)
-            except (TypeError, ValueError):
-                expire = 0
-            if expire > 10**11:  # milliseconds -> seconds
-                expire //= 1000
-            if expire:
-                self.coolkit_at_expire = expire
-        self.coolkit_refreshed_at = time.time()
-        self.session_source = "rt"
-        self.last_rt_error = None
-        _LOGGER.debug(
-            "OKP CoolKit token renewed via rt (expires %s)",
-            self.coolkit_at_expire or "unknown",
-        )
-        return True
+                async with self._session.post(
+                    f"{CK_BASE}{CK_ENDPOINT_USER_REFRESH}",
+                    json={"rt": self.coolkit_rt},
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
+                    body = await resp.json(content_type=None)
+            except aiohttp.ClientError as err:
+                raise OkpApiError(f"coolkit refresh network error: {err}") from err
+            except ValueError as err:
+                raise OkpApiError(f"bad response from coolkit refresh: {err}") from err
+
+            error = body.get("error")
+            if not error:
+                data = body.get("data") or {}
+                at = data.get("at")
+                if not at:
+                    raise OkpApiError("coolkit refresh returned no at")
+                self.coolkit_at = at
+                self.coolkit_rt = data.get("rt") or self.coolkit_rt
+                self.at_rejected = False
+                expire = data.get("atExpiredTime") or data.get("at_expire_at")
+                if expire:
+                    try:
+                        expire = int(expire)
+                    except (TypeError, ValueError):
+                        expire = 0
+                    if expire > 10**11:  # milliseconds -> seconds
+                        expire //= 1000
+                    if expire:
+                        self.coolkit_at_expire = expire
+                self.coolkit_refreshed_at = time.time()
+                self.session_source = "rt"
+                self.last_rt_error = None
+                _LOGGER.debug(
+                    "OKP CoolKit token renewed via rt using the %s (expires %s)",
+                    label,
+                    self.coolkit_at_expire or "unknown",
+                )
+                return True
+
+            msg = body.get("msg") or body.get("message") or "unknown"
+            last_error = f"{error}: {msg}"
+            if error in (400, 401):
+                # The header was rejected or the token in it is unknown. That
+                # says nothing about the refresh token itself, so try the next
+                # candidate before drawing a conclusion.
+                _LOGGER.debug(
+                    "OKP refresh with the %s rejected (%s); trying next candidate",
+                    label,
+                    last_error,
+                )
+                continue
+            break
+
+        self.last_rt_error = last_error
+        if last_error and last_error.startswith(("402", "403")):
+            # The cloud rejected the refresh token itself; stop retrying with
+            # it. A 400/401 is kept (see above) - discarding the token over a
+            # header problem would permanently give up the only session that
+            # does not depend on the phone app.
+            self.coolkit_rt = None
+        raise OkpApiError(f"coolkit refresh failed: {last_error}")
 
     async def ensure_coolkit_token(self) -> None:
         # Refresh when: no token, token within 5 min of expiry, or no expiry
@@ -304,7 +348,7 @@ class OkpApi:
             not self.coolkit_refreshed_at
             or time.time() - self.coolkit_refreshed_at > 12 * 3600
         )
-        if self.coolkit_at and not (
+        if self.coolkit_at and not self.at_rejected and not (
             (self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300)
             or (not self.coolkit_at_expire and stale)
         ):
@@ -346,9 +390,15 @@ class OkpApi:
                       OKP login token, which every app login invalidates.
         ``expired`` - no CoolKit token at all.
         """
-        if not self.coolkit_at:
+        if not self.coolkit_at and not self.coolkit_rt:
             return "expired"
-        return "rt" if self.coolkit_rt else "okplife"
+        if self.coolkit_rt:
+            # A refresh token is present: the session renews itself, whether
+            # or not the current access token is still accepted.
+            return "rt"
+        if self.at_rejected:
+            return "expired"
+        return "okplife"
 
     async def get_thing_state(self, device_id: str) -> dict:
         await self.ensure_coolkit_token()
@@ -376,8 +426,7 @@ class OkpApi:
             # or invalid. Clear it so the next call refreshes, and surface it
             # as an auth error so the coordinator can re-login automatically.
             if error in (401, 402, 403):
-                self.coolkit_at = None
-                self.coolkit_at_expire = 0
+                self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit {error}: {msg}")
             raise OkpApiError(f"coolkit error {error}: {msg}")
         things = ((body.get("data") or {}).get("thingList") or [])
@@ -416,8 +465,7 @@ class OkpApi:
             # x-ck-appid or a non-existent route) and must NOT wipe a token
             # that still works for reads.
             if error in (401, 402):
-                self.coolkit_at = None
-                self.coolkit_at_expire = 0
+                self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit update {error}: {msg}")
             if error == 4002:
                 raise OkpApiError(f"coolkit update 4002 (设备离线或指令无效): {msg}")
@@ -444,8 +492,7 @@ class OkpApi:
             # Map endpoints return 405 (NoSuchKey) while the map for a
             # cleaning run is not ready yet - not an auth problem.
             if error in (401, 402, 403):
-                self.coolkit_at = None
-                self.coolkit_at_expire = 0
+                self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit {error}: {msg}")
             raise OkpApiError(f"coolkit error {error}: {msg}")
         return body
@@ -500,8 +547,7 @@ class OkpApi:
             error = body.get("error")
             msg = body.get("msg") or body.get("message") or "unknown"
             if error in (401, 402, 403):
-                self.coolkit_at = None
-                self.coolkit_at_expire = 0
+                self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit ota {error}: {msg}")
             raise OkpApiError(f"coolkit ota error {error}: {msg}")
         return (body.get("data") or {}).get("otaInfoList") or []
