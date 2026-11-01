@@ -145,6 +145,12 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             **entry.data,
             "coolkit_at": api.coolkit_at,
             "coolkit_at_expire": api.coolkit_at_expire,
+            # v1.2.12: persist how the expiry was obtained and the learned
+            # token lifetime, so the diagnostic sensor keeps telling the truth
+            # after a restart instead of reporting an inferred value as if the
+            # cloud had provided it.
+            "coolkit_at_expire_inferred": api.at_expire_inferred,
+            "coolkit_at_lifetime": api.at_lifetime,
             "coolkit_rt": api.coolkit_rt,
             "coolkit_apikey": api.coolkit_apikey,
             "coolkit_region": api.coolkit_region,

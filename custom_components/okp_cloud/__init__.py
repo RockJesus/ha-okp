@@ -12,6 +12,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import (
+    AT_LIFETIME_FALLBACK_SECONDS,
     CONF_PASSWORD,
     DOMAIN,
     PLATFORMS,
@@ -82,6 +83,7 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                     "inferred" if api.at_expire_inferred else "cloud"
                 ),
                 "refresh_fields": api.last_refresh_fields,
+                "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
                 "error": error,
             }
         )
@@ -160,6 +162,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.coolkit_region = entry.data.get("coolkit_region")
     if api.coolkit_at:
         api.coolkit_at_expire = int(entry.data.get("coolkit_at_expire") or 0)
+        # v1.2.12: keep the diagnostic honest across restarts - an expiry that
+        # was inferred locally must not be reported as cloud-provided.
+        api.at_expire_inferred = bool(entry.data.get("coolkit_at_expire_inferred"))
+    api.at_lifetime = int(
+        entry.data.get("coolkit_at_lifetime") or 0
+    ) or AT_LIFETIME_FALLBACK_SECONDS
 
     # Upgrade path for entries created before v1.2.2 (only `coolkit_at` was
     # stored): mint a refresh token while the OKP access token still works,
