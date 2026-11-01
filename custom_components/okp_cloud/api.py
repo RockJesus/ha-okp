@@ -110,6 +110,13 @@ class OkpApi:
         # Set when CoolKit rejected the access token. The token itself is kept
         # (see _mark_at_rejected) - only the "still valid" belief is dropped.
         self.at_rejected: bool = False
+        # v1.2.10: field names returned by the last renewal response. The
+        # gateway omits the expiry in some deployments, and guessing wrong
+        # means renewing too late. Exposed by the diagnostic sensor / service.
+        self.last_refresh_fields: list[str] = []
+        # True when coolkit_at_expire was inferred locally instead of read
+        # from the cloud response.
+        self.at_expire_inferred: bool = False
 
     # -- low level helpers ------------------------------------------------
 
@@ -246,6 +253,8 @@ class OkpApi:
         self.coolkit_apikey = data.get("apikey") or self.coolkit_apikey
         self.coolkit_region = data.get("region") or self.coolkit_region
         self.coolkit_at_expire = _parse_expire(data)
+        self.last_refresh_fields = sorted(str(k) for k in data.keys())
+        self.at_expire_inferred = not bool(self.coolkit_at_expire)
         self.coolkit_refreshed_at = time.time()
         self.at_rejected = False
         self.session_source = "okplife"
@@ -319,16 +328,21 @@ class OkpApi:
                 self.coolkit_at = at
                 self.coolkit_rt = data.get("rt") or self.coolkit_rt
                 self.at_rejected = False
-                expire = data.get("atExpiredTime") or data.get("at_expire_at")
+                self.last_refresh_fields = sorted(str(k) for k in data.keys())
+                expire = _parse_expire(data)
                 if expire:
-                    try:
-                        expire = int(expire)
-                    except (TypeError, ValueError):
-                        expire = 0
-                    if expire > 10**11:  # milliseconds -> seconds
-                        expire //= 1000
-                    if expire:
-                        self.coolkit_at_expire = expire
+                    self.coolkit_at_expire = expire
+                    self.at_expire_inferred = False
+                else:
+                    # v1.2.10: this gateway sometimes answers with just at/rt
+                    # and no expiry at all. Keeping the *previous* expiry would
+                    # be worse than useless: the fresh token may live far
+                    # shorter than the old one, so the poll cycle would only
+                    # renew it after it had already died - exactly the failure
+                    # mode that forces a reauthentication. Assume one hour,
+                    # renewal with rt is cheap.
+                    self.coolkit_at_expire = int(time.time()) + 3600
+                    self.at_expire_inferred = True
                 self.coolkit_refreshed_at = time.time()
                 self.session_source = "rt"
                 self.last_rt_error = None

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -72,6 +73,15 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 "session_state": api.session_state,
                 "has_refresh_token": bool(api.coolkit_rt),
                 "token_expires_at": api.coolkit_at_expire or None,
+                "token_expires_in_seconds": (
+                    max(0, api.coolkit_at_expire - int(time.time()))
+                    if api.coolkit_at_expire
+                    else None
+                ),
+                "token_expiry_source": (
+                    "inferred" if api.at_expire_inferred else "cloud"
+                ),
+                "refresh_fields": api.last_refresh_fields,
                 "error": error,
             }
         )
