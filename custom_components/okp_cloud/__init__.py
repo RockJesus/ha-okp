@@ -28,7 +28,6 @@ from .const import (
     SERVICE_SET_TIMER,
 )
 from .coordinator import OkpCoordinator
-from .frontend import async_register_frontend
 from .ws import OkpRealtime
 
 _LOGGER = logging.getLogger(__name__)
@@ -280,12 +279,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=new_data)
 
     _async_register_services(hass)
-    # v1.4.5: serve the optional joystick card. Purely additive - a failure
-    # here must not take the entities down with it, hence the guard.
-    try:
-        await async_register_frontend(hass)
-    except Exception:  # noqa: BLE001
-        _LOGGER.exception("OKP 摇杆卡注册失败（不影响实体）")
 
     session = async_create_clientsession(hass)
     api = OkpApi(session)

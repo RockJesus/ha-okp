@@ -115,28 +115,6 @@ data:
 `duration: 0` 的按住状态也有关机保护——超过 10 秒没人松开，集成会自动松开并在日志里提醒一句，
 所以不会出现「卡片关了、机器还在跑」的情况。同一时刻只允许一路按压，重入的调用会被串行化。
 
-### 摇杆卡（可选）
-
-HA 没有摇杆实体，`button` 也无法表达「按住 / 松开」两段手势，所以真正的摇杆只能由前端卡片来做——
-卡片不碰协议，只是把上面 `duration: 0` + `direction: stop` 那个组合包成手势。
-
-集成自带一张单文件卡（`custom_components/okp_cloud/www/okp-joystick-card.js`）：
-集成启动时把该目录挂到 `/okp_cloud_static/`，所以装好集成后文件就在
-`/okp_cloud_static/okp-joystick-card.js`，并会尝试自动注册
-Lovelace 资源（YAML 模式或自动注册失败时，手动加一条资源，类型选「JavaScript 模块」）。然后：
-
-```yaml
-type: custom:okp-joystick-card
-entity: vacuum.sao_di_ji_qi_ren   # 可选：显示状态，并据此推断设备 ID
-# device_id: 100258a68a          # 多台机器人时才需要
-# name: 手动遥控                 # 可选标题
-# size: 220                      # 摇杆直径（px）
-```
-
-手势与安全：按住方向持续移动、松手立刻 `stop`；中心「停」按钮随时松手；切到别的视图、页面进后台、
-窗口失焦都会补发 `stop`；单次按住上限 10 秒（与集成的看门狗同一个上限），到点自动松开并在卡片上提示。
-方向按四象限划分，斜向会被归到最近的轴上——设备本身只吃 `0..3` 四个离散方向。
-
 关于方向值：`0/1/2/3` 对应前后左右是**厂商约定**，尚未在真机上核对。如果你发现某个按钮方向不对，
 先用 `value:` 传原始值试（`0`–`3` 方向、`4` 松开），确认后告诉我，我把映射表改掉。
 
@@ -175,8 +153,6 @@ entity: vacuum.sao_di_ji_qi_ren   # 可选：显示状态，并据此推断设�
 - 密码保存在 HA 配置存储（`.storage/`）中，仅用于首次配置/重新认证时登录；运行中不使用密码
 
 ## 📝 更新日志
-
-- v1.4.5（2026-11-01）：**摇杆卡**。HA 里没有摇杆实体，`button` 也表达不了「按住 / 松开」，所以真摇杆只能由前端做——新增单文件卡 `okp-joystick-card.js`，集成通过 `StaticPathConfig` 把它挂到 `/okp_cloud_static/`，并尝试自动注册 Lovelace 资源（YAML 模式回落为手动添加）。卡片本身不碰协议，只把 `duration: 0` + `direction: stop` 包成手势：按住走、松手停、中心停按钮，切视图 / 进后台 / 窗口失焦都补发 `stop`，单次按住上限 10 秒与看门狗对齐。`manifest` 相应补上 `http` / `frontend` 依赖与 `lovelace` after-dependency
 
 - v1.4.4（2026-11-01）：自动松开后立刻回读一次状态。实测按住不放时看门狗确实在 12 秒左右松开（日志 `OKP manual move still held after 10.0s; releasing automatically`），但因为实体属性是「上次写状态」的快照，界面上仍显示「按住中」，差点误判成没生效。现在松开后 1.5 秒补一次读取，`remote_move` 立刻变回 `released`
 
