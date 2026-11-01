@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import OkpApi, OkpApiError, OkpAuthError
+from .api import OkpApi, OkpApiError, OkpAuthError, OkpRefreshThrottled
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -72,6 +72,9 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._auth_failures = 0
         # Last api.coolkit_refreshed_at value already written to the entry.
         self._token_persist_mark = api.coolkit_refreshed_at
+        # Last auth error already logged, so a persistent failure writes one
+        # line instead of one every poll cycle.
+        self._last_auth_log: str | None = None
 
     async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
         """Ask Home Assistant to start the reauth flow (user enters password).
@@ -212,9 +215,35 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (OkpApiError, OkpAuthError) as err:
             _LOGGER.debug("OKP OTA check skipped: %s", err)
 
+    @property
+    def auth_failure_count(self) -> int:
+        """Consecutive failed poll cycles caused by authentication."""
+        return self._auth_failures
+
+    def _log_auth_failure(self, err: Exception) -> None:
+        """Log an auth failure once, not once per poll cycle."""
+        message = str(err)
+        if message == self._last_auth_log:
+            _LOGGER.debug("OKP auth still failing: %s", message)
+            return
+        self._last_auth_log = message
+        _LOGGER.warning(
+            "OKP auth failed (%d/%d): %s",
+            self._auth_failures,
+            REAUTH_AFTER_FAILURES,
+            message,
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             item = await self.api.get_thing_state(self.device_id)
+        except OkpRefreshThrottled as err:
+            # Purely local rate limiting: we are waiting out
+            # REFRESH_MIN_INTERVAL. No credential was rejected, so this must
+            # not count as an auth failure (it used to read "auth failed (5/3)"
+            # on alternating polls) and it does not deserve a warning.
+            self.last_error = str(err)
+            raise UpdateFailed(str(err)) from err
         except OkpAuthError as auth_err:
             # CoolKit token expired/rejected: renew it without touching the
             # password login (which would kick the phone app session). Every
@@ -222,7 +251,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # cooldown — otherwise the "re-authentication required" prompt
             # would take half an hour to show up.
             now = time.time()
-            self._auth_failures += 1
+            self._auth_failures = min(self._auth_failures + 1, REAUTH_AFTER_FAILURES)
             err: OkpApiError | None = auth_err
             if now >= self._next_retry_at:
                 self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS
@@ -234,16 +263,14 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     item = await self.api.get_thing_state(self.device_id)
                     self._persist_tokens()
                     err = None
+                except OkpRefreshThrottled as exc:
+                    self.last_error = str(exc)
+                    raise UpdateFailed(str(exc)) from exc
                 except (OkpApiError, OkpAuthError) as exc:
                     err = exc
             if err is not None:
                 self.last_error = str(err)
-                _LOGGER.warning(
-                    "OKP auth failed (%d/%d): %s",
-                    self._auth_failures,
-                    REAUTH_AFTER_FAILURES,
-                    err,
-                )
+                self._log_auth_failure(err)
                 if self._auth_failures >= REAUTH_AFTER_FAILURES:
                     await self._maybe_trigger_reauth(err)
                 raise UpdateFailed(str(err)) from err
@@ -253,6 +280,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
         self.last_error = None
         self._auth_failures = 0
+        self._last_auth_log = None
         self._persist_tokens()
         await self._async_refresh_map()
         await self._async_check_ota()

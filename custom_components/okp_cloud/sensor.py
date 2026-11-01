@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -161,6 +162,7 @@ async def async_setup_entry(
                 OkpMetaSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
             )
         entities.append(OkpOnlineSensor(coordinator, third, name, model))
+        entities.append(OkpSessionSensor(coordinator, third, name, model))
     async_add_entities(entities)
 
 
@@ -289,3 +291,60 @@ class OkpOnlineSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
     def native_value(self) -> str:
         online = self.coordinator.data.get("online") if self.coordinator.data else None
         return "online" if online else "offline"
+
+
+class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
+    """How the cloud session renews itself.
+
+    ``rt``      - a CoolKit refresh token is stored, so the session renews on
+                  its own and logging into the phone app does not affect it.
+    ``okplife`` - only an access token; renewing it needs the OKP login token,
+                  which the phone app invalidates on every login.
+    ``expired`` - no CoolKit token at all; entities show their last values.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "session"
+    _attr_icon = "mdi:key-chain-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: OkpCoordinator,
+        device_id: str,
+        name: str,
+        model: str | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_session"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=name,
+            manufacturer="OKP",
+            model=model or "OKP 扫地机器人",
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always report: this sensor exists to explain outages."""
+        return True
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.api.session_state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        api = self.coordinator.api
+        expire = api.coolkit_at_expire
+        return {
+            "has_refresh_token": bool(api.coolkit_rt),
+            "token_expires_at": (
+                datetime.fromtimestamp(expire, tz=timezone.utc).isoformat()
+                if expire
+                else None
+            ),
+            "last_refresh_error": api.last_rt_error,
+            "auth_failures": self.coordinator.auth_failure_count,
+            "last_error": self.coordinator.last_error,
+        }

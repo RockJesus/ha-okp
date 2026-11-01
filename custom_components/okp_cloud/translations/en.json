@@ -11,7 +11,7 @@
       },
       "reauth": {
         "title": "OKP Cloud Re-authentication",
-        "description": "The login token has expired. Re-enter your account and password to restore the connection.",
+        "description": "The login token has expired. Re-enter your account and password to restore the connection.\n\nNote: an OKP account allows only one login session at a time, so submitting this form signs the phone app out. Likewise, logging into the app invalidates the integration's session - that is a cloud-side limit.",
         "data": {
           "account": "Phone / Account",
           "password": "Password"
@@ -83,6 +83,14 @@
         "state": {
           "online": "Online",
           "offline": "Offline"
+        }
+      },
+      "session": {
+        "name": "Cloud session",
+        "state": {
+          "rt": "Self-renewing (app logins do not affect it)",
+          "okplife": "Depends on the login token (app logins invalidate it)",
+          "expired": "Expired"
         }
       },
       "dp31": {
