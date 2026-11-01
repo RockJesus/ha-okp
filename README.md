@@ -64,7 +64,7 @@
 | `sensor.okp_cloud_*_timers` | 传感器 | 定时任务摘要（诊断） |
 | `sensor.okp_cloud_*_online` | 传感器 | 在线状态（诊断） |
 | `camera.okp_cloud_*_cleaning_map` | 摄像头 | 清扫地图（PNG 渲染） |
-| `update.okp_cloud_*_update` | 更新 | 集成版本更新 |
+| `sensor.okp_cloud_*_firmware_update` | 传感器 | 固件更新检查（OTA，有新版时显示目标版本，否则「已是最新」） |
 
 > 扫地机实体还附带扩展属性：`work_state`、`clean_mode`、`fault_code`、`rssi`、`firmware_version`、`cleaning_area`、`cleaning_times`、`carpet_booster`、`online`、`last_error`。
 
@@ -94,6 +94,7 @@
 
 ## 📝 更新日志
 
+- v1.2.1（2026-11-01）：修复 1.2.0 实测暴露的三个缺陷——① **控制全部失效**：CoolKit 写状态接口路径写错（`/v2/device/thing/update` 在网关不存在，恒返回 `403 api not found`），改为 `/v2/device/thing/status`，请求体同步改为 `{"type":1,"id":…,"params":…}`；② **重新认证流程崩溃**：`async_step_reauth` 把 HA 传入的配置条目数据当成表单输入，索引已不再保存的 `password` 抛 `KeyError`（日志表现为 `Task exception was never retrieved`），改为标准的 `reauth` + `reauth_confirm` 两步流程；③ 控制失败不再清空 CoolKit 令牌（403 属请求/权限问题，非认证问题），并向界面抛 `HomeAssistantError` 而非原始异常堆栈；重新认证改为回写完整设备列表，多设备场景不会丢设备
 - v1.2.0（2026-11-01）：对照 v3.4.0 App 全量操作抓包补齐/修复——① CoolKit 令牌获取改用 App 实测的 `GET /v1/coolkit/get-user-info`（旧 `refresh-access-token` 端点 App 已不再调用，服务端可能已下线）；② 修复清扫记录接口时间戳（改为 13 位毫秒、与 App 完全一致，旧版传微秒导致地图/记录取数异常）；③ 支持账号下的多个家庭（App 可建多家庭，设备可能在任一家庭，配置时全部扫描并去重）；④ 新增 4 个传感器：移动状态（move）、版本（version）、最近清扫时间（取自清扫记录接口）、固件更新（OTA 查询，每小时探测，有新版时显示版本号）；⑤ 工作状态映射按抓包实测校准（清扫中=4）；⑥ 清扫记录开始/结束传感器改显示清扫记录编号（该字段实际是记录 ID 而非时间）；⑦ 无清扫记录时地图状态显示「暂无清扫记录」
 
 <details>

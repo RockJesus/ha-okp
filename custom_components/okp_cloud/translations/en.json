@@ -17,6 +17,14 @@
           "password": "Password"
         }
       },
+      "reauth_confirm": {
+        "title": "OKP Cloud Re-authentication",
+        "description": "The login token has expired. Re-enter your account and password to restore the connection.",
+        "data": {
+          "account": "Phone / Account",
+          "password": "Password"
+        }
+      },
       "reconfigure": {
         "title": "OKP Cloud Reconfigure",
         "description": "Update the OKP cloud account and password.",

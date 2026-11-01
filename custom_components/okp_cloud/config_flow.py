@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
@@ -167,9 +168,23 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle a reauth request from the integration.
+
+        Home Assistant calls this step with the *stored entry data* (not user
+        input). Since the password is intentionally never persisted, indexing
+        entry_data for CONF_PASSWORD raised KeyError and crashed the reauth
+        task ("Task exception was never retrieved"), leaving the entry stuck
+        until it was deleted and re-added. The form therefore lives in a
+        separate confirm step.
+        """
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Re-authenticate an existing entry (e.g. after token expiry)."""
+        """Show / handle the reauth form (account + password)."""
         errors: dict[str, str] = {}
         entry = self._get_reauth_entry()
         account = (entry.data.get(CONF_ACCOUNT) or "") if entry else ""
@@ -181,15 +196,12 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 if result is None:
                     errors["base"] = "no_device"
                 else:
-                    api, home_id, device = result
+                    api, home_id, devices = result
                     entry = self._get_reauth_entry()
-                    new_data = {
-                        **entry.data,
-                        "access_token": api.access_token,
-                        "user_id": api.user_id,
-                        "coolkit_at": api.coolkit_at,
-                        "coolkit_at_expire": api.coolkit_at_expire,
-                    }
+                    # Rebuild the whole payload (token + device list) so a
+                    # reauth after a device was added on the app side picks
+                    # the new device up instead of keeping a stale list.
+                    new_data = self._entry_data(api, home_id, devices, account)
                     self.hass.config_entries.async_update_entry(entry, data=new_data)
                     return self.async_abort(reason="reauth_successful")
             except OkpAuthError:
@@ -202,7 +214,7 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
-            step_id="reauth",
+            step_id="reauth_confirm",
             data_schema=self._auth_schema(account),
             errors=errors,
         )

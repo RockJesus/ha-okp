@@ -74,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         third = dev.get("third_dev_id")
         if not third:
             continue
-        coordinators[third] = OkpCoordinator(hass, api, third)
+        coordinators[third] = OkpCoordinator(hass, api, third, entry.entry_id)
 
     # First refresh for every coordinator (parallel) before platforms load.
     if coordinators:

@@ -32,6 +32,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hass: HomeAssistant,
         api: OkpApi,
         device_id: str,
+        entry_id: str | None = None,
         account: str | None = None,
         password: str | None = None,
     ) -> None:
@@ -43,6 +44,9 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api = api
         self.device_id = device_id
+        # Owning config entry: used to raise the reauth prompt on the right
+        # entry when the account has more than one (multi-home / multi-robot).
+        self.entry_id = entry_id
         self.account = account
         self.password = password
         self.last_error: str | None = None
@@ -73,14 +77,20 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._reauth_requested = True
         try:
-            entry = next(
-                (
-                    e
-                    for e in self.hass.config_entries.async_entries(DOMAIN)
-                    if not e.disabled_by
-                ),
-                None,
+            entry = (
+                self.hass.config_entries.async_get_entry(self.entry_id)
+                if self.entry_id
+                else None
             )
+            if entry is None:
+                entry = next(
+                    (
+                        e
+                        for e in self.hass.config_entries.async_entries(DOMAIN)
+                        if not e.disabled_by
+                    ),
+                    None,
+                )
             if entry:
                 started = entry.async_start_reauth(self.hass)
                 # async def on recent HA, sync no-op on older ones — await only

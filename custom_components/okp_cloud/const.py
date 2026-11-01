@@ -29,7 +29,11 @@ ENDPOINT_CK_USER_INFO = "/v1/coolkit/get-user-info"
 # CoolKit (thing cloud) API
 CK_BASE = "https://cn-apia.coolkit.cn"
 CK_ENDPOINT_THING = "/v2/device/thing"
-CK_ENDPOINT_THING_UPDATE = "/v2/device/thing/update"
+# v1.2.1: write path is /v2/device/thing/status (CoolKit v2 "set device
+# status"), body {"type":1,"id":<deviceid>,"params":{...}}. The previous
+# "/v2/device/thing/update" does not exist on the gateway and answers
+# {"error":403,"msg":"api not found"}, which killed every control call.
+CK_ENDPOINT_THING_UPDATE = "/v2/device/thing/status"
 CK_ENDPOINT_SWEEP_HISTORY = "/v2/device/sweep-robot-cleanning-history"
 CK_ENDPOINT_SWEEP_MAP = "/v2/device/sweep-robot-cleanning-map"
 CK_ENDPOINT_OTA_QUERY = "/v2/device/ota/query"

@@ -17,6 +17,14 @@
           "password": "密码"
         }
       },
+      "reauth_confirm": {
+        "title": "OKP 云账号重新登录",
+        "description": "登录令牌已失效，请重新输入账号密码以恢复连接。",
+        "data": {
+          "account": "手机号/账号",
+          "password": "密码"
+        }
+      },
       "reconfigure": {
         "title": "OKP 云账号重新配置",
         "description": "修改 OKP 云账号与密码。",

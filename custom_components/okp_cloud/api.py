@@ -244,7 +244,10 @@ class OkpApi:
             "domain-name": CK_DOMAIN,
             "content-type": "application/json",
         }
-        payload = {"thing": {"itemType": 1, "id": device_id, "params": params}}
+        # CoolKit v2 set-status schema: {"type":1,"id":<deviceid>,"params":{}}.
+        # type 1 = single device (2 = group). The old {"thing": {...}} wrapper
+        # was rejected by the gateway before the body was even parsed.
+        payload = {"type": 1, "id": device_id, "params": params}
         try:
             async with self._session.post(
                 f"{CK_BASE}{CK_ENDPOINT_THING_UPDATE}",
@@ -258,10 +261,16 @@ class OkpApi:
         if body.get("error"):
             error = body.get("error")
             msg = body.get("msg") or body.get("message") or "unknown"
-            if error in (401, 402, 403):
+            # Only 401/402 mean "token invalid" -> clear it so the next poll
+            # refreshes. 403 is a header/permission problem (e.g. wrong
+            # x-ck-appid or a non-existent route) and must NOT wipe a token
+            # that still works for reads.
+            if error in (401, 402):
                 self.coolkit_at = None
                 self.coolkit_at_expire = 0
                 raise OkpAuthError(f"coolkit update {error}: {msg}")
+            if error == 4002:
+                raise OkpApiError(f"coolkit update 4002 (设备离线或指令无效): {msg}")
             raise OkpApiError(f"coolkit update error {error}: {msg}")
 
     # -- sweep map ----------------------------------------------------------

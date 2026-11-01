@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -97,5 +98,5 @@ class OkpCarpetBoosterSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
             await self.api.set_thing_params(self.device_id, {"carpetBooster": on})
         except OkpApiError as err:
             _LOGGER.warning("OKP set carpet booster failed: %s", err)
-            raise
+            raise HomeAssistantError(f"OKP 设置地毯增压失败：{err}") from err
         await self.coordinator.async_request_refresh()

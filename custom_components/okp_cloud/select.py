@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -96,5 +97,5 @@ class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity):
             await self.api.set_thing_params(self.device_id, {"mode": value})
         except OkpApiError as err:
             _LOGGER.warning("OKP set clean mode failed: %s", err)
-            raise
+            raise HomeAssistantError(f"OKP 设置清扫模式失败：{err}") from err
         await self.coordinator.async_request_refresh()

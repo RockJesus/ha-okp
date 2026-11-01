@@ -10,6 +10,7 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -199,4 +200,7 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             await self.api.set_thing_params(self.device_id, params)
         except OkpApiError as err:
             _LOGGER.warning("OKP control failed: %s", err)
-            raise
+            # Surface a clean, translated error to the UI instead of letting
+            # the raw exception bubble up as an "Unexpected exception"
+            # traceback in the service call response.
+            raise HomeAssistantError(f"OKP 控制失败：{err}") from err
