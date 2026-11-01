@@ -77,10 +77,14 @@ class OkpRealtime:
         hass: HomeAssistant,
         api: OkpApi,
         coordinators: dict[str, OkpCoordinator],
+        state_listener: Any = None,
     ) -> None:
         self.hass = hass
         self.api = api
         self._coordinators = coordinators
+        # Called whenever the channel state changes, so the diagnostic sensor
+        # shows live values instead of the snapshot from the last poll.
+        self._state_listener = state_listener
         self._task: asyncio.Task | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._closing = False
@@ -114,6 +118,14 @@ class OkpRealtime:
         self._logged_error: str | None = None
 
     # -- lifecycle --------------------------------------------------------
+
+    def _notify(self) -> None:
+        if self._state_listener is None:
+            return
+        try:
+            self._state_listener()
+        except Exception:  # noqa: BLE001 - diagnostics must never break the socket
+            _LOGGER.debug("OKP realtime state listener failed", exc_info=True)
 
     def async_start(self) -> None:
         """Start the background socket task (idempotent)."""
@@ -180,6 +192,7 @@ class OkpRealtime:
                 self.last_error = str(err) or type(err).__name__
                 if self.state != STATE_DISABLED:
                     self.state = STATE_ERROR
+                self._notify()
                 if time.time() - self._reconnect_at < WS_CHURN_WINDOW:
                     # We just replaced the token a moment ago; the cloud may
                     # still be tearing down the session we left behind, which
@@ -231,9 +244,11 @@ class OkpRealtime:
             # Nothing to authenticate with yet. Not an error worth warning
             # about: the poll cycle is still working on it.
             self.state = STATE_DISABLED
+            self._notify()
             raise RuntimeError("no CoolKit token/apikey to open a socket with")
 
         self.state = STATE_CONNECTING
+        self._notify()
         # Renew first when the token is about to die, otherwise the handshake
         # is rejected and the socket looks broken for no good reason.
         await self.api.ensure_coolkit_token()
@@ -277,6 +292,7 @@ class OkpRealtime:
                 self._ws = None
                 if self.state == STATE_CONNECTED:
                     self.state = STATE_DISCONNECTED
+                    self._notify()
 
     # -- protocol steps ---------------------------------------------------
 
@@ -348,6 +364,7 @@ class OkpRealtime:
         self.last_message_at = self.connected_since
         self.last_error = None
         self._logged_error = None
+        self._notify()
         config = reply.get("config") or {}
         try:
             hb = int(config.get("hbInterval") or WS_HB_INTERVAL_FALLBACK)

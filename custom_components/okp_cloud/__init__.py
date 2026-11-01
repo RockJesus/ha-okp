@@ -302,7 +302,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # everything still works when the socket cannot be established.
     realtime: OkpRealtime | None = None
     if coordinators and entry.options.get(CONF_REALTIME, True):
-        realtime = OkpRealtime(hass, api, coordinators)
+        def _notify_realtime_state() -> None:
+            """Push the new channel state to the diagnostic sensor."""
+            for coordinator in coordinators.values():
+                coordinator.async_update_listeners()
+
+        realtime = OkpRealtime(
+            hass, api, coordinators, state_listener=_notify_realtime_state
+        )
         for coordinator in coordinators.values():
             coordinator.realtime = realtime
         hass.data[DOMAIN][entry.entry_id]["realtime"] = realtime
