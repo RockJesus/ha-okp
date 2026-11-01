@@ -324,6 +324,9 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self.move_value = MOVE_RELEASE_VALUE
             self.last_move_at = time.time()
+        # Entity attributes are a snapshot of the last write, so an automatic
+        # release would otherwise stay invisible until the next poll.
+        self.async_schedule_refresh((1.5,))
         return {"released": True}
 
     def _start_move_watchdog(self, generation: int) -> None:
