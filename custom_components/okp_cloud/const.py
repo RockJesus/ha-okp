@@ -53,10 +53,11 @@ MAP_CHECK_SECONDS = 300
 # OTA availability check (POST /v2/device/ota/query) is light but has no
 # user-visible urgency; probe it at most once per hour.
 OTA_CHECK_SECONDS = 3600
-# After a failed re-login, back off 15 minutes instead of hammering the
-# login endpoint every poll cycle (login storms can trip account risk
-# control and break the phone app session).
-RELOGIN_COOLDOWN_SECONDS = 900
+# After a failed token renewal, space retries out instead of hammering the
+# cloud on every poll cycle. Kept close to the poll interval (180 s): the
+# renewal call is already throttled by REFRESH_MIN_INTERVAL, and a long
+# cooldown here delays the reauth prompt for no benefit.
+RELOGIN_COOLDOWN_SECONDS = 300
 # Minimum gap between two token-refresh attempts (protects the cloud from a
 # refresh storm when it is unreachable). Poll interval is 180 s, so this only
 # suppresses back-to-back attempts from control calls.

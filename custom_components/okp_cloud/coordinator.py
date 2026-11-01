@@ -215,25 +215,29 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             item = await self.api.get_thing_state(self.device_id)
-        except OkpAuthError:
-            # CoolKit token expired/rejected: silently refresh the CoolKit
-            # token using the stored OKP access token. This never calls the
-            # password login endpoint, so it cannot kick the phone app
-            # session (OKP cloud allows only one active session per account).
+        except OkpAuthError as auth_err:
+            # CoolKit token expired/rejected: renew it without touching the
+            # password login (which would kick the phone app session). Every
+            # failed cycle counts, including the ones that only wait out the
+            # cooldown — otherwise the "re-authentication required" prompt
+            # would take half an hour to show up.
             now = time.time()
-            if now < self._next_retry_at:
-                raise UpdateFailed("auth failed, retrying later") from None
-            self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS
-            try:
-                # ensure_coolkit_token() prefers the CoolKit refresh token and
-                # only falls back to okplife, so a dead OKP access token does
-                # not necessarily kill the poll cycle.
-                await self.api.ensure_coolkit_token()
-                item = await self.api.get_thing_state(self.device_id)
-                self._persist_tokens()
-            except (OkpApiError, OkpAuthError) as err:
+            self._auth_failures += 1
+            err: OkpApiError | None = auth_err
+            if now >= self._next_retry_at:
+                self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS
+                try:
+                    # ensure_coolkit_token() prefers the CoolKit refresh token
+                    # and only falls back to okplife, so a dead OKP access
+                    # token does not necessarily end the session.
+                    await self.api.ensure_coolkit_token()
+                    item = await self.api.get_thing_state(self.device_id)
+                    self._persist_tokens()
+                    err = None
+                except (OkpApiError, OkpAuthError) as exc:
+                    err = exc
+            if err is not None:
                 self.last_error = str(err)
-                self._auth_failures += 1
                 _LOGGER.warning(
                     "OKP auth failed (%d/%d): %s",
                     self._auth_failures,
