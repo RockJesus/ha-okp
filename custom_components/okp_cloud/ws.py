@@ -81,6 +81,9 @@ class OkpRealtime:
         self._task: asyncio.Task | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._closing = False
+        # Set when *we* closed the socket on purpose (token renewal), so the
+        # read loop can exit quietly instead of reporting a cloud-side drop.
+        self._closed_by_us = False
         # Diagnostic state (read by the realtime sensor).
         self.state = STATE_IDLE
         self.host: str | None = None
@@ -130,12 +133,14 @@ class OkpRealtime:
         self._attempt = 0
         self._logged_error = None
         if self._ws is not None and not self._ws.closed:
+            self._closed_by_us = True
             self.hass.async_create_task(self._async_close_ws())
 
     async def _async_close_ws(self) -> None:
         ws = self._ws
         self._ws = None
         if ws is not None and not ws.closed:
+            self._closed_by_us = True
             try:
                 await ws.close()
             except Exception:  # noqa: BLE001 - closing is best effort
@@ -184,6 +189,7 @@ class OkpRealtime:
 
     async def _async_session(self) -> None:
         """One connect / handshake / read cycle."""
+        self._closed_by_us = False
         if not self.api.coolkit_at or not self.api.coolkit_apikey:
             # Nothing to authenticate with yet. Not an error worth warning
             # about: the poll cycle is still working on it.
@@ -337,6 +343,8 @@ class OkpRealtime:
                 aiohttp.WSMsgType.CLOSING,
                 aiohttp.WSMsgType.CLOSED,
             ):
+                if self._closed_by_us or self._closing:
+                    return
                 raise RuntimeError("socket closed by the cloud")
             elif msg.type is aiohttp.WSMsgType.ERROR:
                 raise RuntimeError(f"socket error: {ws.exception()}")
