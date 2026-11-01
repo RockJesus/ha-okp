@@ -42,9 +42,9 @@
       "work_state": {
         "name": "工作状态",
         "state": {
-          "1": "清扫中",
           "2": "已暂停",
           "3": "回充中",
+          "4": "清扫中",
           "7": "空闲"
         }
       },
@@ -84,12 +84,21 @@
           "off": "关闭"
         }
       },
-      "last_clean_start": { "name": "上次清扫开始" },
-      "last_clean_end": { "name": "上次清扫结束" },
+      "last_clean_start": { "name": "最近清扫记录开始" },
+      "last_clean_end": { "name": "最近清扫记录结束" },
       "ui_active": { "name": "界面活跃值" },
       "call": { "name": "呼叫计数" },
       "timers": { "name": "启用的定时任务" },
-      "timers_total": { "name": "定时任务总数" }
+      "timers_total": { "name": "定时任务总数" },
+      "move": { "name": "移动状态" },
+      "version": { "name": "版本" },
+      "last_clean_time": { "name": "最近清扫时间" },
+      "ota_update": {
+        "name": "固件更新",
+        "state": {
+          "current": "已是最新"
+        }
+      }
     },
     "select": {
       "clean_mode": { "name": "清扫模式" }

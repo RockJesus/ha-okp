@@ -13,11 +13,12 @@ from .const import (
     CK_APP_ID,
     CK_BASE,
     CK_DOMAIN,
+    CK_ENDPOINT_OTA_QUERY,
     CK_ENDPOINT_SWEEP_HISTORY,
     CK_ENDPOINT_SWEEP_MAP,
     CK_ENDPOINT_THING,
     CK_ENDPOINT_THING_UPDATE,
-    ENDPOINT_CK_REFRESH,
+    ENDPOINT_CK_USER_INFO,
     ENDPOINT_DEVICE_DETAIL,
     ENDPOINT_DEVICE_LIST,
     ENDPOINT_HOME_LIST,
@@ -133,14 +134,13 @@ class OkpApi:
             self.user_id = str(self.user_id)
         return data
 
-    async def get_home_id(self) -> str:
+    async def get_homes(self) -> list[dict]:
+        """Return every home under the account (v1.2.0: multi-home scan)."""
         body = await self._request(f"{API_BASE}{ENDPOINT_HOME_LIST}", None, auth=True)
         homes = body.get("data")
         if isinstance(homes, dict):
             homes = homes.get("list") or []
-        if not homes:
-            raise OkpApiError("no homes found")
-        return str(homes[0].get("home_id") or homes[0].get("id"))
+        return homes or []
 
     async def get_devices(self, home_id: str) -> list[dict]:
         body = await self._request(
@@ -163,7 +163,11 @@ class OkpApi:
 
     async def refresh_coolkit_token(self) -> None:
         self._last_refresh_try = time.time()
-        body = await self._get(f"{API_BASE}{ENDPOINT_CK_REFRESH}", auth=True)
+        # v1.2.0: the app obtains CoolKit credentials from
+        # GET /v1/coolkit/get-user-info (same signed headers as every other
+        # okplife call). The old refresh-access-token endpoint is no longer
+        # called by the v3.4.0 app and may be retired server-side.
+        body = await self._get(f"{API_BASE}{ENDPOINT_CK_USER_INFO}", auth=True)
         data = body.get("data") or {}
         at = data.get("at")
         if not at:
@@ -288,13 +292,60 @@ class OkpApi:
         return body
 
     async def get_cleaning_history(self, device_id: str, num: int = 3) -> list[dict]:
-        """Return recent cleaning runs (each with a cleaningId)."""
-        now_us = int(time.time() * 1000000)
+        """Return recent cleaning runs (each with a cleaningId).
+
+        The `from` parameter is a millisecond epoch (13 digits) exactly as the
+        app sends it (e.g. 1785978545000). Older builds passed microseconds
+        (16 digits), which the server does not accept as "now", causing the
+        history/map endpoints to return empty data.
+        """
+        now_ms = int(time.time() * 1000)
         body = await self._ck_get(
             f"{CK_BASE}{CK_ENDPOINT_SWEEP_HISTORY}"
-            f"?deviceid={device_id}&from={now_us}&num={num}"
+            f"?deviceid={device_id}&from={now_ms}&num={num}"
         )
         return (body.get("data") or {}).get("histories") or []
+
+    async def query_ota(self, device_id: str, model: str | None, version: str | None) -> dict:
+        """Ask the CoolKit cloud whether a firmware update is available.
+
+        Returns the otaInfoList dict (usually {"otaInfoList": [...]}).
+        """
+        await self.ensure_coolkit_token()
+        headers = {
+            "authorization": f"Bearer {self.coolkit_at}",
+            "x-ck-appid": CK_APP_ID,
+            "domain-name": CK_DOMAIN,
+            "content-type": "application/json",
+        }
+        payload = {
+            "deviceInfoList": [
+                {
+                    "deviceid": device_id,
+                    "model": model or "",
+                    "version": version or "",
+                }
+            ]
+        }
+        try:
+            async with self._session.post(
+                f"{CK_BASE}{CK_ENDPOINT_OTA_QUERY}",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise OkpApiError(f"coolkit ota network error: {err}") from err
+        if body.get("error"):
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            if error in (401, 402, 403):
+                self.coolkit_at = None
+                self.coolkit_at_expire = 0
+                raise OkpAuthError(f"coolkit ota {error}: {msg}")
+            raise OkpApiError(f"coolkit ota error {error}: {msg}")
+        return (body.get("data") or {}).get("otaInfoList") or []
 
     async def get_cleaning_map(self, device_id: str, cleaning_id: str) -> list[str]:
         """Return mapPaths for one cleaning run (grid points as strings)."""

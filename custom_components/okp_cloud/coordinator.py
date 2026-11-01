@@ -16,6 +16,7 @@ from .const import (
     MAP_CHECK_SECONDS,
     MAP_HISTORY_NUM,
     MAP_REFRESH_MINUTES,
+    OTA_CHECK_SECONDS,
     RELOGIN_COOLDOWN_SECONDS,
 )
 from .map_render import parse_map_paths, render_map_png
@@ -51,6 +52,12 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.map_updated_at: float = 0.0
         self.map_error: str | None = None
         self._map_check_ts: float = 0.0
+        # Latest cleaning run from the history endpoint (cleaningId + opsTime
+        # + cleaningLogs); backs the "last cleaning time" sensor.
+        self.latest_history: dict | None = None
+        # Firmware update availability from /v2/device/ota/query (low freq).
+        self.ota_available: str | None = None
+        self._ota_check_ts: float = 0.0
         self._next_retry_at: float = 0.0
         # Whether a reauth prompt has already been requested for this load.
         self._reauth_requested = False
@@ -98,6 +105,12 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._map_check_ts = now
         try:
             histories = await self.api.get_cleaning_history(self.device_id, MAP_HISTORY_NUM)
+            if histories:
+                self.latest_history = histories[0]
+            else:
+                self.latest_history = None
+                self.map_error = "no cleaning history yet"
+                return
             latest = None
             for h in histories:
                 cid = h.get("cleaningId")
@@ -129,6 +142,27 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.map_error = str(err)
             _LOGGER.warning("OKP map refresh failed: %s", err)
 
+    async def _async_check_ota(self) -> None:
+        """Probe firmware-update availability at most once per hour."""
+        now = time.time()
+        if now - self._ota_check_ts < OTA_CHECK_SECONDS:
+            return
+        self._ota_check_ts = now
+        try:
+            item = self.data.get("item") if self.data else None
+            params = (item or {}).get("params") or {}
+            model = (item or {}).get("productModel") or ""
+            fw = params.get("fwVersion") or ""
+            info = await self.api.query_ota(self.device_id, model, fw)
+            if info and isinstance(info, list) and info[0]:
+                self.ota_available = str(
+                    info[0].get("version") or info[0].get("targetVersion") or "available"
+                )
+            else:
+                self.ota_available = None
+        except (OkpApiError, OkpAuthError) as err:
+            _LOGGER.debug("OKP OTA check skipped: %s", err)
+
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             item = await self.api.get_thing_state(self.device_id)
@@ -157,10 +191,13 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
         self.last_error = None
         await self._async_refresh_map()
+        await self._async_check_ota()
         return {
             "item": item,
             "params": item.get("params") or {},
             "online": bool(item.get("online")),
             "devicekey": item.get("devicekey"),
             "fw_version": (item.get("params") or {}).get("fwVersion"),
+            "history": self.latest_history,
+            "ota_available": self.ota_available,
         }

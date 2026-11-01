@@ -64,6 +64,35 @@ def _timers_total(params: dict[str, Any]) -> int | None:
     return len(timers)
 
 
+def _last_clean_time(data: dict[str, Any]) -> str | None:
+    """Human-readable local time of the most recent cleaning run.
+
+    Backed by the newest entry of the sweep-robot-cleanning-history endpoint
+    (opsTime is an ISO-8601 UTC timestamp).
+    """
+    history = data.get("history")
+    if not isinstance(history, dict):
+        return None
+    ops = history.get("opsTime")
+    if not ops:
+        return None
+    try:
+        from datetime import datetime
+
+        parsed = datetime.fromisoformat(str(ops).replace("Z", "+00:00"))
+        return parsed.astimezone().isoformat(timespec="minutes")
+    except (TypeError, ValueError):
+        return None
+
+
+def _ota_update(data: dict[str, Any]) -> str:
+    """Available firmware version, or 'current' when up to date."""
+    version = data.get("ota_available")
+    if version:
+        return str(version)
+    return "current"
+
+
 SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass | None, str | None, bool]] = [
     # (key, value_fn, icon, device_class, unit, entity_category_diagnostic)
     # Values are human-readable keys; the UI shows them via translations
@@ -86,6 +115,16 @@ SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass
     ("call", lambda p: _int(p.get("call")), "mdi:phone-alert", None, None, True),
     ("timers", _timers_enabled, "mdi:calendar-clock", None, None, True),
     ("timers_total", _timers_total, "mdi:calendar-multiple", None, None, True),
+    # v1.2.0: dps observed in the v3.4.0 app capture on K5 Ultra.
+    ("move", lambda p: _int(p.get("move")), "mdi:walk", None, None, True),
+    ("version", lambda p: _int(p.get("version")), "mdi:tag", None, None, True),
+]
+
+# v1.2.0: sensors sourced from coordinator-level data (cleaning history /
+# OTA availability), not from a single dp. They are created unconditionally.
+META_SENSORS: list[tuple[str, Callable[[dict[str, Any]], Any], str, SensorDeviceClass | None, str | None, bool]] = [
+    ("last_clean_time", _last_clean_time, "mdi:clock-outline", None, None, False),
+    ("ota_update", _ota_update, "mdi:cloud-download", None, None, False),
 ]
 
 
@@ -114,6 +153,12 @@ async def async_setup_entry(
                 continue
             entities.append(
                 OkpSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
+            )
+        # v1.2.0: coordinator-level sensors (cleaning history / OTA) are
+        # created unconditionally - they do not depend on a specific dp.
+        for key, value_fn, icon, device_class, unit, diagnostic in META_SENSORS:
+            entities.append(
+                OkpMetaSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
             )
         entities.append(OkpOnlineSensor(coordinator, third, name, model))
     async_add_entities(entities)
@@ -163,6 +208,52 @@ class OkpSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
     def native_value(self) -> Any:
         params = self.coordinator.data.get("params", {}) if self.coordinator.data else {}
         return self._value_fn(params)
+
+
+class OkpMetaSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
+    """A sensor backed by coordinator-level data (history / OTA)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OkpCoordinator,
+        device_id: str,
+        name: str,
+        model: str | None,
+        key: str,
+        value_fn: Callable[[dict[str, Any]], Any],
+        icon: str | None,
+        device_class: SensorDeviceClass | None,
+        unit: str | None,
+        diagnostic: bool,
+    ) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._value_fn = value_fn
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}"
+        self._attr_translation_key = key
+        self._attr_icon = icon
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+        if diagnostic:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=name,
+            manufacturer="OKP",
+            model=model or "OKP 扫地机器人",
+        )
+
+    @property
+    def available(self) -> bool:
+        """Keep last known value during cloud outages."""
+        return True
+
+    @property
+    def native_value(self) -> Any:
+        data = self.coordinator.data or {}
+        return self._value_fn(data)
 
 
 class OkpOnlineSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):

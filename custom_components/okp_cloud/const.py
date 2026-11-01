@@ -21,7 +21,10 @@ ENDPOINT_LOGIN = "/v5/client/login-with-password"
 ENDPOINT_HOME_LIST = "/v2/home/list"
 ENDPOINT_DEVICE_LIST = "/v9/home/device-list"
 ENDPOINT_DEVICE_DETAIL = "/v5/home/device-detail-info"
-ENDPOINT_CK_REFRESH = "/v1/coolkit/refresh-access-token"
+# v1.2.0: the v3.4.0 app exchanges the OKP access token for CoolKit
+# credentials via GET /v1/coolkit/get-user-info (refresh-access-token is no
+# longer called by the app and may be retired server-side).
+ENDPOINT_CK_USER_INFO = "/v1/coolkit/get-user-info"
 
 # CoolKit (thing cloud) API
 CK_BASE = "https://cn-apia.coolkit.cn"
@@ -29,6 +32,7 @@ CK_ENDPOINT_THING = "/v2/device/thing"
 CK_ENDPOINT_THING_UPDATE = "/v2/device/thing/update"
 CK_ENDPOINT_SWEEP_HISTORY = "/v2/device/sweep-robot-cleanning-history"
 CK_ENDPOINT_SWEEP_MAP = "/v2/device/sweep-robot-cleanning-map"
+CK_ENDPOINT_OTA_QUERY = "/v2/device/ota/query"
 CK_APP_ID = "fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z"  # x-ck-appid (OKP app)
 CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 
@@ -37,6 +41,9 @@ MAP_REFRESH_MINUTES = 30
 MAP_HISTORY_NUM = 3
 # History endpoint is lightweight; probe it at most every 5 minutes.
 MAP_CHECK_SECONDS = 300
+# OTA availability check (POST /v2/device/ota/query) is light but has no
+# user-visible urgency; probe it at most once per hour.
+OTA_CHECK_SECONDS = 3600
 # After a failed re-login, back off 15 minutes instead of hammering the
 # login endpoint every poll cycle (login storms can trip account risk
 # control and break the phone app session).
@@ -106,6 +113,10 @@ SENSOR_DP_REQUIREMENTS = {
     "call": "call",
     "timers": "timers",
     "timers_total": "timers",
+    # v1.2.0: additional dps observed in the v3.4.0 app capture on K5 Ultra
+    # (move = movement state, version = device/software version counter).
+    "move": "move",
+    "version": "version",
 }
 # select / switch platforms
 SELECT_REQUIRES_DP = "mode"

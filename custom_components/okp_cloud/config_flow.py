@@ -46,14 +46,28 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         # token (multi-client, shares the cloud session without kicking the
         # phone app). Store it so HA restarts never need the OKP login again.
         await api.refresh_coolkit_token()
-        home_id = await api.get_home_id()
-        devices = await api.get_devices(home_id)
-        # v1.1.9: support every robot vacuum under the account (all devices
-        # with a CoolKit third_dev_id), not just the first one.
-        devices = [dev for dev in devices if dev.get("third_dev_id")]
+        # v1.2.0: scan every home under the account (the v3.4.0 app lists
+        # multiple homes; a device can live in any of them), then collect all
+        # robot vacuums that have a CoolKit third_dev_id, deduplicated.
+        homes = await api.get_homes()
+        if not homes:
+            raise OkpApiError("no homes found")
+        devices: list[dict] = []
+        seen: set[str] = set()
+        first_home: str | None = None
+        for home in homes:
+            home_id = str(home.get("home_id") or home.get("id"))
+            devs = await api.get_devices(home_id)
+            for dev in devs:
+                third = dev.get("third_dev_id")
+                if third and third not in seen:
+                    seen.add(third)
+                    devices.append(dev)
+            if devices and first_home is None:
+                first_home = home_id
         if not devices:
             return None
-        return api, home_id, devices
+        return api, first_home, devices
 
     def _entry_data(
         self, api: OkpApi, home_id: str, devices: list[dict], account: str
