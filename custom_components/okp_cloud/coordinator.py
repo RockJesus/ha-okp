@@ -1,6 +1,7 @@
 """Coordinator for the OKP Cloud vacuum integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import timedelta
@@ -113,6 +114,22 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning("OKP reauth flow started: %s", err)
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)
+
+    def async_schedule_refresh(self, delays: tuple[float, ...] = (4.0, 12.0)) -> None:
+        """Re-read device state shortly after a control write.
+
+        The cloud echoes a device change with a few seconds of latency, so an
+        immediate refresh usually reads the *old* value back and the entity
+        then looks stuck until the next 180 s poll. Kick a couple of follow-up
+        reads instead: the first lands right after the device applies the
+        change, the second catches a slower echo.
+        """
+        async def _later(seconds: float) -> None:
+            await asyncio.sleep(seconds)
+            await self.async_request_refresh()
+
+        for delay in delays:
+            self.hass.async_create_task(_later(delay))
 
     def timers(self) -> list[dict[str, Any]]:
         """Device-side schedules (the ``timers`` dp), or an empty list."""

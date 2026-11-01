@@ -209,3 +209,6 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             # the raw exception bubble up as an "Unexpected exception"
             # traceback in the service call response.
             raise HomeAssistantError(f"OKP 控制失败：{err}") from err
+        # v1.3.2: the entity reads from the coordinator, so without a refresh
+        # the UI keeps showing the old value until the next 180 s poll.
+        self.coordinator.async_schedule_refresh()

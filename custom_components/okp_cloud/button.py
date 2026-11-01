@@ -86,3 +86,4 @@ class OkpFindRobotButton(CoordinatorEntity[OkpCoordinator], ButtonEntity):
         except OkpApiError as err:
             _LOGGER.warning("OKP find-robot failed: %s", err)
             raise HomeAssistantError(f"OKP 查找机器人失败：{err}") from err
+        self.coordinator.async_schedule_refresh((4.0,))

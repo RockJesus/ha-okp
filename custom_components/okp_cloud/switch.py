@@ -115,7 +115,7 @@ class _OkpBoolSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
         except OkpApiError as err:
             _LOGGER.warning("OKP set %s failed: %s", self._dp_key, err)
             raise HomeAssistantError(f"OKP 设置{self._label}失败：{err}") from err
-        await self.coordinator.async_request_refresh()
+        self.coordinator.async_schedule_refresh()
 
 
 class OkpCarpetBoosterSwitch(_OkpBoolSwitch):

@@ -98,4 +98,4 @@ class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity):
         except OkpApiError as err:
             _LOGGER.warning("OKP set clean mode failed: %s", err)
             raise HomeAssistantError(f"OKP 设置清扫模式失败：{err}") from err
-        await self.coordinator.async_request_refresh()
+        self.coordinator.async_schedule_refresh()
