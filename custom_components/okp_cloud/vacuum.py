@@ -171,6 +171,9 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
             attrs["device_key"] = self.coordinator.data.get("devicekey")
         if getattr(self.coordinator, "last_error", None):
             attrs["last_error"] = self.coordinator.last_error
+        # v1.4.3: what the last manual-remote command sent (``move`` is a
+        # write-only command dp, the robot never echoes it back).
+        attrs["remote_move"] = self.coordinator.move_state()
         return attrs
 
     # -- control -----------------------------------------------------------

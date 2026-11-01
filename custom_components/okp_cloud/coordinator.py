@@ -17,6 +17,7 @@ from .const import (
     MAP_CHECK_SECONDS,
     MAP_HISTORY_NUM,
     MAP_REFRESH_MINUTES,
+    MOVE_DIRECTIONS,
     MOVE_DP,
     MOVE_HOLD_MAX_SECONDS,
     MOVE_RELEASE_VALUE,
@@ -351,6 +352,23 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._move_watchdog = None
         if task is not None and not task.done():
             task.cancel()
+
+    def move_state(self) -> dict[str, Any]:
+        """What the last manual-remote command was, for the vacuum attributes.
+
+        ``move`` is a command dp: the robot executes it but never reports it
+        back (the v3.4.0 capture only ever shows app-origin frames for it), so
+        this is the *only* way to see what the integration actually sent.
+        Handy for verifying the direction mapping: press "前进" and compare
+        ``value`` with what the robot did.
+        """
+        value = self.move_value
+        names = {v: k for k, v in MOVE_DIRECTIONS.items()}
+        return {
+            "value": value,
+            "direction": "released" if value == MOVE_RELEASE_VALUE else names.get(value),
+            "at": self.last_move_at,
+        }
 
     async def async_shutdown_move(self) -> None:
         """Release a held direction and stop the watchdog (entry unload)."""
