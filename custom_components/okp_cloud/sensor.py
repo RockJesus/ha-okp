@@ -458,6 +458,7 @@ class OkpRealtimeSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         attrs.update(
             {
                 "host": realtime.host,
+                "socket_open": realtime.is_open,
                 "connected_since": _iso(realtime.connected_since),
                 "last_message_at": _iso(realtime.last_message_at),
                 "messages_received": realtime.messages,

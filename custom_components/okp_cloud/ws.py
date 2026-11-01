@@ -129,14 +129,14 @@ class OkpRealtime:
         """Drop the current socket so the next loop iteration re-handshakes.
 
         Called after a token renewal: the running socket holds the *old*
-        access token, and the cloud may invalidate it at any time.
+        access token, and the cloud may invalidate it at any time. Only a flag
+        is flipped - the read loop notices it within a few seconds and exits,
+        which lets ``async with`` close the socket in the task that owns it.
         """
         self._attempt = 0
         self._logged_error = None
         self._reconnect_requested = True
         self._closed_by_us = True
-        if self._ws is not None and not self._ws.closed:
-            self.hass.async_create_task(self._async_close_ws())
 
     async def _async_close_ws(self) -> None:
         ws = self._ws
@@ -342,14 +342,31 @@ class OkpRealtime:
     async def _async_read(
         self, ws: aiohttp.ClientWebSocketResponse, hb_interval: int
     ) -> None:
-        """Read frames until the socket dies."""
+        """Read frames until the socket dies or a reconnect is requested.
+
+        The receive timeout is short on purpose. Closing a websocket from
+        *another* task while this one sits in ``receive()`` does not reliably
+        wake it up (aiohttp coordinates the close with the reader, so the two
+        can wait on each other), which is exactly why the token-renewal
+        reconnect silently did nothing. Polling a flag every few seconds keeps
+        the reconnect path independent of aiohttp's close semantics.
+        """
+        last_rx = time.monotonic()
+        poll = max(2.0, min(10.0, hb_interval / 4))
         while not self._closing:
+            if self._reconnect_requested:
+                return
             try:
-                msg = await ws.receive(timeout=hb_interval)
-            except asyncio.TimeoutError as err:
-                # No pong within a full heartbeat interval: the TCP connection
+                msg = await ws.receive(timeout=poll)
+            except asyncio.TimeoutError:
+                if self._reconnect_requested or self._closing:
+                    return
+                # No traffic for a full heartbeat interval: the TCP connection
                 # may look alive while the cloud has already dropped it.
-                raise RuntimeError(f"no traffic for {hb_interval}s") from err
+                if time.monotonic() - last_rx > hb_interval:
+                    raise RuntimeError(f"no traffic for {hb_interval}s")
+                continue
+            last_rx = time.monotonic()
             if msg.type is aiohttp.WSMsgType.TEXT:
                 self._handle_text(msg.data)
             elif msg.type is aiohttp.WSMsgType.BINARY:
@@ -408,10 +425,17 @@ class OkpRealtime:
 
     # -- diagnostics ------------------------------------------------------
 
+    @property
+    def is_open(self) -> bool:
+        """Whether a socket object is currently established."""
+        return self._ws is not None and not self._ws.closed
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "state": self.state,
             "host": self.host,
+            "socket_open": self.is_open,
+            "reconnect_pending": self._reconnect_requested,
             "connected_since": self.connected_since,
             "last_message_at": self.last_message_at,
             "messages_received": self.messages,

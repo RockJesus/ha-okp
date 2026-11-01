@@ -117,6 +117,7 @@ HTTP 接口，所以它不可能把机器人置成 App 里做不出来的状态�
 
 ## 📝 更新日志
 
+- v1.3.7（2026-11-01）：修掉「续期后其实没重连」。实测发现从另一个任务调用 `ws.close()` 时，aiohttp 会让 close 与挂起的 `receive()` 互相等待，结果 socket 一直没关、令牌续期后仍用旧令牌，`connected_since` 和 `reconnects` 都不动。现在改为读循环每 2~10 秒自查一次「是否要求重连」，由持有 socket 的任务自己退出并关闭（顺带保留心跳超时判定），重连不再依赖 aiohttp 的关闭语义。新增诊断属性 `socket_open`，并把 `reconnect_pending` 一起暴露出来
 - v1.3.6（2026-11-01）：v1.3.5 的降噪没打到位。实测发现从另一个任务关 socket 时，挂起的 `receive()` 有时不是返回 CLOSE 帧而是抛 `ConnectionResetError`，于是「自己关的」仍被记成 `socket closed by the cloud` 警告。现在整个读循环外统一判断「是不是我们主动重连」，无论异常类型都不再误报；顺带修掉关旧连接时可能误清新连接的竞态
 - v1.3.5（2026-11-01）：日志降噪。令牌续期后集成会主动断开旧连接再握手，这次「自己关的」此前被记成 `OKP realtime unavailable (socket closed by the cloud)` 警告，看起来像云端把连接踢了。现在区分主动重连与云端断开，前者只写 debug，界面状态也直接回到 `disconnected → connecting → connected`，不再出现误导性告警
 - v1.3.4（2026-11-01）：修掉 v1.3.3 引入的一个真问题。v1.3.3 给配置条目加了「选项变更即重载」监听，但令牌续期也会写 `entry.data`，于是每次续期都触发一次整体重载；更糟的是重载会替换 `hass.data[DOMAIN]`，而 `okp_cloud.refresh_session` 正在遍历这个字典 —— 实测该服务直接报 `dictionary changed size during iteration`。现在监听只在「选项说要开」与「确实有连接在跑」不一致时才重载，服务也改为遍历快照。实测 `refresh_session` 恢复正常，返回 `refreshed_by: rt` 且 `realtime: connected`
