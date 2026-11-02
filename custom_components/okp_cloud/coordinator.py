@@ -475,6 +475,9 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "coolkit_at_expire_inferred": api.at_expire_inferred,
             "coolkit_at_lifetime": api.at_lifetime,
             "coolkit_rt": api.coolkit_rt,
+            "coolkit_rt_issued_at": api.coolkit_rt_issued_at,
+            "coolkit_rt_rejected_at": api.coolkit_rt_rejected_at or None,
+            "coolkit_rt_reject_count": api.coolkit_rt_reject_count,
             "coolkit_apikey": api.coolkit_apikey,
             "coolkit_region": api.coolkit_region,
         }
@@ -633,7 +636,19 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # cooldown — otherwise the "re-authentication required" prompt
             # would take half an hour to show up.
             now = time.time()
-            self._auth_failures = min(self._auth_failures + 1, REAUTH_AFTER_FAILURES)
+            # v1.4.11: two failure qualities, two different speeds.
+            #
+            # The refresh token is gone (the cloud rejected it in
+            # refresh_coolkit_by_rt, which clears it): only a password login
+            # can recover, so count at full weight. While an rt is still held
+            # this is a transient failure - cloud flakiness, a header
+            # rejection, a hiccup - and it advances at half speed: three
+            # consecutive hiccups must no longer shove a password form at the
+            # user, because that form costs the phone app session.
+            step = 2 if not self.api.coolkit_rt else 1
+            self._auth_failures = min(
+                self._auth_failures + step, REAUTH_AFTER_FAILURES
+            )
             err: OkpApiError | None = auth_err
             if now >= self._next_retry_at:
                 self._next_retry_at = now + RELOGIN_COOLDOWN_SECONDS

@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -39,15 +39,22 @@ DEVICES_KEY = "devices"
 
 
 async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
-    """Force a CoolKit session renewal and report the outcome.
+    """Report the session state, and only renew it when explicitly asked.
 
     v1.2.9: the access token is long-lived (weeks), so the ``rt`` renewal path
     would otherwise only be exercised when it is already too late to tell a
-    working renewal from a lucky cache hit. This service exercises the same
-    code the poll cycle uses, and answers with the new session state so the
-    result is observable from the developer tools UI.
+    working renewal from a lucky cache hit.
+
+    v1.4.11: *reporting* and *renewing* are no longer the same action. The
+    CoolKit cloud rotates the refresh token on renewal and invalidates what it
+    issued before, so a "just checking" call used to burn the only session
+    that does not depend on the phone app - exactly what happened during the
+    v1.4.10 deployment test. The service is therefore dry by default: it
+    reports what it knows from stored state and the last poll. Pass
+    ``force: true`` to actually renew.
     """
     hass: HomeAssistant = call.hass
+    force = bool(call.data.get("force"))
     entries: list[dict[str, Any]] = []
     # Iterate a snapshot: persisting tokens updates the config entry, and an
     # options change can reload it, both of which mutate hass.data[DOMAIN].
@@ -60,23 +67,30 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
         refreshed_by: str | None = None
         error: str | None = None
 
-        renewed = False
-        try:
-            renewed = await api.refresh_coolkit_by_rt()
-        except (OkpApiError, OkpAuthError) as err:
-            error = str(err)
-        if renewed:
-            refreshed_by = "rt"
-        else:
-            # No usable refresh token (or the gateway refused it): fall back
-            # to the okplife route, which needs a live OKP access token.
-            rt_error = error or "no refresh token stored"
+        if force:
+            renewed = False
             try:
-                await api.refresh_coolkit_token()
-                refreshed_by = "okplife"
-                error = f"rt unavailable ({rt_error})"
-            except (OkpApiError, OkpAuthError) as err2:
-                error = f"rt: {rt_error}; okplife: {err2}"
+                renewed = await api.refresh_coolkit_by_rt()
+            except (OkpApiError, OkpAuthError) as err:
+                error = str(err)
+            if renewed:
+                refreshed_by = "rt"
+            elif not api.coolkit_rt:
+                # No usable refresh token: fall back to the okplife route,
+                # which needs a live OKP access token.
+                rt_error = error or "no refresh token stored"
+                try:
+                    await api.refresh_coolkit_token()
+                    refreshed_by = "okplife"
+                    error = f"rt unavailable ({rt_error})"
+                except (OkpApiError, OkpAuthError) as err2:
+                    error = f"rt: {rt_error}; okplife: {err2}"
+            # else: an rt is still held and the renewal failed transiently -
+            # keep the rt route authoritative instead of falling through to
+            # the app-dependent okplife route (same rule as
+            # ensure_coolkit_token()). The poll cycle retries.
+        else:
+            error = api.last_rt_error
 
         if refreshed_by:
             for coordinator in coordinators.values():
@@ -86,9 +100,19 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
             if realtime is not None:
                 realtime.async_reconnect()
 
+        last_auth_error = next(
+            (
+                c.last_error
+                for c in coordinators.values()
+                if c.last_error_was_auth and c.last_error
+            ),
+            None,
+        )
+        entry = hass.config_entries.async_get_entry(entry_id)
         entries.append(
             {
                 "entry_id": entry_id,
+                "mode": "renew" if force else "report",
                 "refreshed_by": refreshed_by,
                 "session_state": api.session_state,
                 "has_refresh_token": bool(api.coolkit_rt),
@@ -101,6 +125,18 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 "token_expiry_source": (
                     "inferred" if api.at_expire_inferred else "cloud"
                 ),
+                "token_age_seconds": (
+                    int(time.time() - api.coolkit_refreshed_at)
+                    if api.coolkit_refreshed_at
+                    else None
+                ),
+                "rt_issued_at": api.coolkit_rt_issued_at or None,
+                "rt_rejected_at": api.coolkit_rt_rejected_at or None,
+                "rt_reject_count": api.coolkit_rt_reject_count,
+                "last_auth_error": last_auth_error,
+                "reauth_pending": bool(
+                    entry is not None and entry.state is ConfigEntryState.SETUP_ERROR
+                ),
                 "refresh_fields": api.last_refresh_fields,
                 "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
                 "realtime": realtime.state if realtime is not None else None,
@@ -109,8 +145,10 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
         )
         if refreshed_by:
             _LOGGER.info("OKP session renewed on demand via %s", refreshed_by)
-        else:
+        elif force:
             _LOGGER.warning("OKP on-demand renewal failed: %s", error)
+        else:
+            _LOGGER.debug("OKP session reported (dry run, nothing renewed)")
 
     return {"entries": entries}
 
@@ -302,6 +340,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.at_lifetime = int(
         entry.data.get("coolkit_at_lifetime") or 0
     ) or AT_LIFETIME_FALLBACK_SECONDS
+    # v1.4.11: rt issue/rejection bookkeeping survives a restart, so a
+    # post-mortem ("who took the session, and when") still has the timestamps.
+    api.coolkit_rt_issued_at = float(entry.data.get("coolkit_rt_issued_at") or 0)
+    api.coolkit_rt_rejected_at = float(entry.data.get("coolkit_rt_rejected_at") or 0)
+    api.coolkit_rt_reject_count = int(entry.data.get("coolkit_rt_reject_count") or 0)
 
     # Upgrade path for entries created before v1.2.2 (only `coolkit_at` was
     # stored): mint a refresh token while the OKP access token still works,

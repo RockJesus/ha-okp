@@ -106,6 +106,14 @@ class OkpApi:
         self.session_source: str = "none"
         # Last CoolKit refresh-token failure, kept for the diagnostic sensor.
         self.last_rt_error: str | None = None
+        # v1.4.11: when the current refresh token was last issued by the
+        # cloud, and when the cloud last rejected one outright. The CoolKit
+        # cloud rotates rt on renewal and invalidates the previous one, so
+        # "the session died" is usually answered by these two timestamps plus
+        # the renewal log - which client took the session and when.
+        self.coolkit_rt_issued_at: float = 0.0
+        self.coolkit_rt_rejected_at: float = 0.0
+        self.coolkit_rt_reject_count: int = 0
         # Only warn once per process when okplife hands out at-only credentials.
         self._warned_no_rt: bool = False
         # Set when CoolKit rejected the access token. The token itself is kept
@@ -258,6 +266,8 @@ class OkpApi:
         # okplife-dependent one (i.e. one the phone app can kick out).
         new_rt = data.get("rt")
         if new_rt:
+            if new_rt != self.coolkit_rt:
+                self.coolkit_rt_issued_at = time.time()
             self.coolkit_rt = new_rt
             self.last_rt_error = None
         self.coolkit_apikey = data.get("apikey") or self.coolkit_apikey
@@ -339,6 +349,8 @@ class OkpApi:
                 if not at:
                     raise OkpApiError("coolkit refresh returned no at")
                 self.coolkit_at = at
+                if data.get("rt") and data["rt"] != self.coolkit_rt:
+                    self.coolkit_rt_issued_at = time.time()
                 self.coolkit_rt = data.get("rt") or self.coolkit_rt
                 self.at_rejected = False
                 self.last_refresh_fields = sorted(str(k) for k in data.keys())
@@ -389,6 +401,8 @@ class OkpApi:
             # it. A 400/401 is kept (see above) - discarding the token over a
             # header problem would permanently give up the only session that
             # does not depend on the phone app.
+            self.coolkit_rt_rejected_at = time.time()
+            self.coolkit_rt_reject_count += 1
             self.coolkit_rt = None
         raise OkpApiError(f"coolkit refresh failed: {last_error}")
 

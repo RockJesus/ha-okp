@@ -2,8 +2,21 @@
 # and in the automation editor).
 refresh_session:
   name: 手动续期云会话
-  description: 立即用保存的刷新令牌（rt）换取新的访问令牌，并返回会话状态。
-  fields: {}
+  description: >-
+    默认只**读取并返回**当前会话状态，不做任何网络请求，不会消耗令牌。
+    CoolKit 云端在续期时会轮换刷新令牌（rt）并作废旧令牌，因此「只是看一眼」
+    绝不能顺手续期——排查时请保持 force 关闭。
+    只有确实需要立刻换一个新令牌时才把 force 打开。
+  fields:
+    force:
+      name: 立即续期
+      description: >-
+        打开后会真的调用云端续期接口（优先用 rt，rt 被拒绝才回退登录令牌）。
+        会消耗并轮换当前刷新令牌，非必要不要打开。
+      required: false
+      default: false
+      selector:
+        boolean:
 
 set_timer:
   name: 启用/停用定时任务

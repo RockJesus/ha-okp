@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.4.11（2026-11-02）：**别让「看一眼」把会话看没了**。部署 v1.4.10 时用 `okp_cloud.refresh_session` 做验证，结果 CoolKit 云端在续期时轮换了刷新令牌（rt）并作废旧令牌，几小时后两条令牌链同时失效（`coolkit refresh failed: 401 cannot found access token info` + `4001 请先登录`），只能重新输密码。这一版：① `refresh_session` 改为**默认只读**（`mode: report`，不发任何网络请求、不消耗令牌），要真续期必须显式传 `force: true`；② 认证失败计数分级：rt 已被云端拒绝（已清空）按满速计数，rt 仍在的临时失败半速计数——连续三次云端抖动不再弹密码框（弹一次就丢一次 App 会话）；③ 新增 rt 生命周期追踪：`coolkit_rt_issued_at` / `coolkit_rt_rejected_at` / `coolkit_rt_reject_count`，持久化到配置条目，下次会话失效能直接看出是哪个时间点被谁消耗
+
 - v1.4.10（2026-11-02）：**清扫模式选择器改中文**。`select.*_clean_mode` 的选项由 `smart / random / wall_follow / spiral` 改为 **智能 / 随机 / 沿边 / 螺旋**。① 状态机与传感器（`sensor.*_clean_mode`、定时任务的 `mode` 提示）内部仍用英文 code，避免破坏已有自动化与历史统计；② `select.select_option` 同时接受中文标签和旧的英文值，老脚本调用不会报 `unknown clean mode`；③ 增加 `RestoreEntity` 兼容：升级后重启时把 `.storage` 里恢复的旧英文状态映射为中文，避免首个轮询周期前显示 `unknown`
 
 - v1.4.9（2026-11-02）：**App 登录与集成会话解耦**。① `ensure_coolkit_token`：只要 CoolKit 刷新令牌（rt）还在，rt 刷新就是唯一续期路径——rt 临时失败（网络抖动/云端 5xx）不再回退到 okplife 路由；此前 App 登录踢掉 OKP 令牌后，okplife 回退必然抛认证错误并推进 reauth 计数，逼用户输密码（密码登录又把 App 踢回去，两边互踢的恶性循环）。rt 被云端明确拒绝（402/403，此时 rt 已被清空）才回退 okplife。② reauth 流程静默自愈：进入密码表单前，先用配置条目里存的 rt 尝试续期一次，成功则直接更新令牌并结束 reauth——App 登录顶掉 OKP 令牌这种最常见场景下，**无需输密码、App 会话不受任何影响**；只有 rt 也死了才出现密码表单。③ reauth 表单文案明确提示「提交密码会临时挤掉 App 登录」

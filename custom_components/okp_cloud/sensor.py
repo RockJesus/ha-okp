@@ -397,6 +397,24 @@ class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
             "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
             "last_refresh_fields": api.last_refresh_fields,
             "last_refresh_error": api.last_rt_error,
+            # v1.4.11: the post-mortem pair. The CoolKit cloud rotates rt on
+            # renewal, so a dead session is explained by "when was the current
+            # rt issued" plus "when did the cloud start rejecting one".
+            "rt_issued_at": (
+                datetime.fromtimestamp(
+                    api.coolkit_rt_issued_at, tz=timezone.utc
+                ).isoformat()
+                if api.coolkit_rt_issued_at
+                else None
+            ),
+            "rt_rejected_at": (
+                datetime.fromtimestamp(
+                    api.coolkit_rt_rejected_at, tz=timezone.utc
+                ).isoformat()
+                if api.coolkit_rt_rejected_at
+                else None
+            ),
+            "rt_reject_count": api.coolkit_rt_reject_count,
             "auth_failures": self.coordinator.auth_failure_count,
             "last_error": self.coordinator.last_error,
         }
