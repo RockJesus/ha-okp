@@ -16,6 +16,7 @@ from .const import (
     AT_LIFETIME_FALLBACK_SECONDS,
     CONF_PASSWORD,
     CONF_REALTIME,
+    CONF_REALTIME_DEFAULT,
     DOMAIN,
     MOVE_DEFAULT_DURATION,
     MOVE_DIRECTIONS,
@@ -360,7 +361,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # three minutes. It is a pure accelerator: the poll below keeps running and
     # everything still works when the socket cannot be established.
     realtime: OkpRealtime | None = None
-    if coordinators and entry.options.get(CONF_REALTIME, True):
+    if coordinators and entry.options.get(CONF_REALTIME, CONF_REALTIME_DEFAULT):
         def _notify_realtime_state() -> None:
             """Push the new channel state to the diagnostic sensor."""
             for coordinator in coordinators.values():
@@ -394,7 +395,7 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     change between "option says on" and "a socket actually exists" is acted on.
     """
     store = (hass.data.get(DOMAIN) or {}).get(entry.entry_id) or {}
-    wanted = bool(entry.options.get(CONF_REALTIME, True))
+    wanted = bool(entry.options.get(CONF_REALTIME, CONF_REALTIME_DEFAULT))
     running = store.get("realtime") is not None
     if wanted == running:
         return

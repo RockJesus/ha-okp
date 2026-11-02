@@ -20,7 +20,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
-from .const import CONF_ACCOUNT, CONF_REALTIME, DOMAIN
+from .const import CONF_ACCOUNT, CONF_REALTIME, CONF_REALTIME_DEFAULT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +53,9 @@ class OkpOptionsFlow(OptionsFlow):
                 {
                     vol.Optional(
                         CONF_REALTIME,
-                        default=self.config_entry.options.get(CONF_REALTIME, True),
+                        default=self.config_entry.options.get(
+                            CONF_REALTIME, CONF_REALTIME_DEFAULT
+                        ),
                     ): cv.boolean,
                 }
             ),

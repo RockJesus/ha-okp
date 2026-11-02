@@ -14,8 +14,14 @@ PLATFORMS = [
 
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
-# v1.3.3: options key for the realtime push channel (default on).
+# v1.3.3: options key for the realtime push channel.
+# v1.4.6: default off. The vendor cloud allows only one "app" session per
+# user: opening the OKP phone app tears the socket down and every later
+# handshake fails with "406 Authentication Failed" until the app is gone,
+# and the app login also invalidates the OKP token chain (4001). Defaulting
+# to polling keeps every install safe; the toggle remains opt-in.
 CONF_REALTIME = "realtime"
+CONF_REALTIME_DEFAULT = False
 
 # okplife REST API
 API_BASE = "https://api-cn.okplife.com"
