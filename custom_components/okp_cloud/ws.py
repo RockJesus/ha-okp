@@ -50,6 +50,8 @@ from .const import (
     WS_HB_INTERVAL_FALLBACK,
     WS_CHURN_WINDOW,
     WS_FLAG_POLL,
+    WS_HANDOVER_RETRY,
+    WS_HANDOVER_SECONDS,
     WS_PATH,
     WS_RECONNECT_DELAYS,
     WS_RECONNECT_GRACE,
@@ -120,6 +122,15 @@ class OkpRealtime:
         # Last failure already logged, so a permanently unreachable socket
         # writes one line instead of one per retry.
         self._logged_error: str | None = None
+        # v1.5.3: the access token this socket registered on the cloud with.
+        # ``userOnline`` is a *single-session* registration: the account is
+        # allowed exactly one online client, and the current one is the token
+        # presented in the handshake. Every other route (polling, controls)
+        # must keep using this same token - see session_owned_by_socket().
+        self.socket_at: str | None = None
+        # v1.5.3: when the socket deliberately handed the session back for
+        # renewal (see the expiry check in _async_watch).
+        self._handover_at: float = 0.0
 
     # -- lifecycle --------------------------------------------------------
 
@@ -255,7 +266,21 @@ class OkpRealtime:
         self._notify()
         # Renew first when the token is about to die, otherwise the handshake
         # is rejected and the socket looks broken for no good reason.
-        await self.api.ensure_coolkit_token()
+        #
+        # v1.5.3: but never renew while *we* are the ones holding the session.
+        # ``session_socket_at`` is cleared when a socket tears down, so on a
+        # fresh start this call still renews if it must; during the reconnect
+        # churn of a socket that is already registered it is a no-op, which is
+        # exactly what the old code got wrong - each renewal rotated the
+        # token, and the reconnect's own ``userOnline`` then invalidated it.
+        if self.api.session_socket_at is None:
+            # After handing the session back before expiry, wait long enough
+            # for the poll to have renewed it - reconnecting immediately would
+            # register the dying token again and defeat the handover.
+            if self._handover_at and time.time() - self._handover_at < WS_HANDOVER_RETRY:
+                self._handover_at = 0.0
+                await asyncio.sleep(WS_HANDOVER_RETRY)
+            await self.api.ensure_coolkit_token()
         dispatch = await self._async_dispatch()
         host = dispatch.get("domain") or dispatch.get("IP")
         if not host:
@@ -294,6 +319,10 @@ class OkpRealtime:
                     ping_task.cancel()
             finally:
                 self._ws = None
+                # v1.5.3: hand the session back so the poll may renew again.
+                # Compare-and-clear: a newer socket may already own it.
+                if self.api.session_socket_at == self.socket_at:
+                    self.api.session_socket_at = None
                 if self.state == STATE_CONNECTED:
                     self.state = STATE_DISCONNECTED
                     self._notify()
@@ -369,6 +398,11 @@ class OkpRealtime:
         self.last_message_at = self.connected_since
         self.last_error = None
         self._logged_error = None
+        # v1.5.3: from here on this socket owns the account's single session.
+        # Publishing it on the api object stops every other route (polling,
+        # controls, renewal) from rotating the token underneath the socket.
+        self.socket_at = self.api.coolkit_at
+        self.api.session_socket_at = self.socket_at
         self._notify()
         config = reply.get("config") or {}
         try:
@@ -389,7 +423,13 @@ class OkpRealtime:
                 return
             try:
                 await ws.send_str("ping")
-            except (aiohttp.ClientError, RuntimeError):
+            except (aiohttp.ClientError, RuntimeError) as err:
+                # v1.5.3: this used to return silently, which made the socket
+                # go quiet *and* look healthy until the silence watchdog fired
+                # a reconnect. Say it out loud so the diagnostic tells the
+                # story instead of hiding it.
+                self.last_error = f"heartbeat send failed: {err}"
+                self._log_once(self.last_error)
                 return
 
     async def _async_read(self, ws: aiohttp.ClientWebSocketResponse) -> None:
@@ -449,6 +489,23 @@ class OkpRealtime:
                 # may look alive while the cloud has already dropped it.
                 if time.monotonic() - self.last_rx > hb_interval:
                     raise RuntimeError(f"no traffic for {hb_interval}s")
+                # v1.5.3: the socket owns the session, so only it may decide to
+                # give it up. Near expiry it closes deliberately: the poll then
+                # renews with the refresh token (ownership released) and the
+                # next handshake registers the fresh one. Waiting for the cloud
+                # to reject the token would look identical to being kicked and
+                # push the entry towards a reauth prompt.
+                expire = self.api.coolkit_at_expire
+                if expire and time.time() >= expire - WS_HANDOVER_SECONDS:
+                    self._ended_by_request = True
+                    self._closed_by_us = True
+                    self._handover_at = time.time()
+                    _LOGGER.debug(
+                        "OKP realtime handing the session back before token "
+                        "expiry (%ss left)",
+                        int(expire - time.time()),
+                    )
+                    return
         finally:
             if not reader.done():
                 reader.cancel()

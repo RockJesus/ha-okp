@@ -68,7 +68,18 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
         refreshed_by: str | None = None
         error: str | None = None
 
-        if force:
+        if force and realtime is not None and realtime.socket_at:
+            # v1.5.3: an open socket owns the account's single session. Forcing
+            # a renewal here rotates the token under it and the socket's next
+            # ``userOnline`` invalidates whatever the rotation produced - the
+            # exact chain that ends in "cannot found access token info".
+            # Report instead of renewing; the user can close realtime first if
+            # they genuinely need a fresh token right now.
+            error = (
+                "realtime socket holds the session; renewal skipped "
+                "(disable realtime or reload the integration to force one)"
+            )
+        elif force:
             renewed = False
             try:
                 renewed = await api.refresh_coolkit_by_rt()
@@ -141,6 +152,10 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 # the app, or lost by the integration?
                 "session_origin": api.session_origin,
                 "session_started_at": api.session_started_at or None,
+                # v1.5.3: True while the realtime socket owns the session (and
+                # therefore no renewal may run). False means the poll owns it
+                # and may renew freely.
+                "session_held_by_socket": bool(api.session_socket_at),
                 "last_rt_probe_at": (
                     min(
                         (

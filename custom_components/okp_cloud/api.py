@@ -122,6 +122,16 @@ class OkpApi:
         # or did the integration lose it?" without touching the app.
         self.session_origin: str = "none"
         self.session_started_at: float = 0.0
+        # v1.5.3: set by the realtime socket while it holds the account's
+        # single online session, together with the token it registered with.
+        # Renewing while that socket is open is what used to kill the
+        # integration: ``refresh`` rotates the token, the socket is left
+        # holding a token the cloud no longer honours, it reconnects, its
+        # ``userOnline`` invalidates *that* token, the poll gets 401 and asks
+        # for another refresh - a loop that ends with the whole session
+        # revoked ("cannot found access token info"). While this is set the
+        # socket's token is authoritative and no renewal is attempted here.
+        self.session_socket_at: str | None = None
         # Only warn once per process when okplife hands out at-only credentials.
         self._warned_no_rt: bool = False
         # Set when CoolKit rejected the access token. The token itself is kept
@@ -482,6 +492,13 @@ class OkpApi:
             not self.coolkit_refreshed_at
             or time.time() - self.coolkit_refreshed_at > 3600
         )
+        # v1.5.3: the realtime socket owns the session. Renewing here would
+        # rotate the token out from under it, which is the specific way this
+        # integration lost its session (see session_socket_at). Skip renewal
+        # entirely - the token still works, only its expiry bookkeeping has
+        # gone stale, and the socket closes before it dies anyway.
+        if self.session_socket_at and self.coolkit_at == self.session_socket_at:
+            return
         if self.coolkit_at and not self.at_rejected and not (
             (self.coolkit_at_expire and time.time() >= self.coolkit_at_expire - 300)
             or (not self.coolkit_at_expire and stale)

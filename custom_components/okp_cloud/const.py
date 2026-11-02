@@ -122,6 +122,13 @@ WS_CHURN_WINDOW = 90
 # check for a silent socket. Kept short: aiohttp's own receive timeout proved
 # unreliable here, so nothing may depend on it.
 WS_FLAG_POLL = 5
+# v1.5.3: how long before access-token expiry the realtime socket hands the
+# session back to the poll (which owns renewal). Long enough that the poll's
+# next cycle renews comfortably, short enough not to waste a valid session.
+WS_HANDOVER_SECONDS = 900
+# How long to wait after a handover before re-registering, so the poll has
+# finished its renewal (one poll cycle is plenty).
+WS_HANDOVER_RETRY = 300
 # How long the socket may keep replacing the poll with pushes before a real
 # HTTP read is forced in. The poll is still the only thing that renews the
 # token, refreshes the map and probes for firmware, so it must not starve.
