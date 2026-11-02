@@ -200,7 +200,13 @@ FAN_STANDARD = "standard"
 FAN_STRONG = "strong"
 FAN_SPEED_LIST = [FAN_QUIET, FAN_STANDARD, FAN_STRONG]
 
-# Clean modes
+# Clean modes.
+#
+# v1.4.10: the select entity shows Chinese labels; the codes above stay in
+# the English form because they are the values the state machine, the
+# diagnostic sensors (sensor.*_clean_mode) and existing automations use.
+# MODE_TO_VALUE / VALUE_TO_MODE stay keyed by the *code*; the select works
+# with labels through MODE_LABELS below.
 MODE_SMART = "smart"
 MODE_RANDOM = "random"
 MODE_WALL_FOLLOW = "wall_follow"
@@ -210,6 +216,19 @@ MODE_LIST = [MODE_SMART, MODE_RANDOM, MODE_WALL_FOLLOW, MODE_SPIRAL]
 # Mode <-> CoolKit dp mapping (shared by vacuum platform and sensors)
 MODE_TO_VALUE = {MODE_SMART: 0, MODE_RANDOM: 1, MODE_WALL_FOLLOW: 2, MODE_SPIRAL: 3}
 VALUE_TO_MODE = {v: k for k, v in MODE_TO_VALUE.items()}
+
+# Code -> Chinese label, for the select entity only. The scheduler exposes
+# the same labels as its "mode" hint (see sensor.py), mapping back here.
+MODE_LABELS = {
+    MODE_SMART: "智能",
+    MODE_RANDOM: "随机",
+    MODE_WALL_FOLLOW: "沿边",
+    MODE_SPIRAL: "螺旋",
+}
+MODE_LABEL_LIST = [MODE_LABELS[m] for m in MODE_LIST]
+MODE_LABEL_TO_CODE = {label: code for code, label in MODE_LABELS.items()}
+MODE_LABEL_TO_VALUE = {MODE_LABELS[code]: value for code, value in MODE_TO_VALUE.items()}
+VALUE_TO_MODE_LABEL = {value: MODE_LABELS[code] for value, code in VALUE_TO_MODE.items()}
 
 # Per-model dp semantics (verified on K5 Ultra). Other models may differ;
 # extend this table as devices are tested. The sensor/select/switch platforms

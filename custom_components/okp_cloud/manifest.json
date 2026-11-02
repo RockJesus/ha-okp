@@ -10,7 +10,7 @@
   "ssdp": [],
   "zeroconf": [],
   "homeassistant": "2024.6.0",
-  "version": "1.4.9",
+  "version": "1.4.10",
   "iot_class": "cloud_push",
   "integration_type": "hub",
   "quality_scale": "bronze"

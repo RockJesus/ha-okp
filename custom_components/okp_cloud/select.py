@@ -10,10 +10,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OkpApi, OkpApiError
-from .const import DOMAIN, MODE_LIST, MODE_TO_VALUE, SELECT_REQUIRES_DP, VALUE_TO_MODE
+from .const import (
+    DOMAIN,
+    MODE_LABEL_LIST,
+    MODE_LABEL_TO_VALUE,
+    MODE_TO_VALUE,
+    SELECT_REQUIRES_DP,
+    VALUE_TO_MODE_LABEL,
+)
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,11 +56,11 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity):
-    """Clean mode selector (smart / random / wall-follow / spiral)."""
+class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity, RestoreEntity):
+    """Clean mode selector, labelled in Chinese (智能 / 随机 / 沿边 / 螺旋)."""
 
     _attr_has_entity_name = True
-    _attr_options = MODE_LIST
+    _attr_options = MODE_LABEL_LIST
 
     def __init__(
         self,
@@ -80,17 +88,38 @@ class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity):
         """Keep last known value during cloud outages."""
         return True
 
+    async def async_added_to_hass(self) -> None:
+        """Carry the pre-relabel state over to its Chinese label.
+
+        Until the first successful poll, Home Assistant restores the state
+        this entity had before v1.4.10 - the English code ("smart"). That
+        value is no longer one of the options, so the selector would sit at
+        an unknown value for up to one poll interval after an upgrade.
+        Translate it on the way in.
+        """
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state in MODE_TO_VALUE:
+            self._attr_state = VALUE_TO_MODE_LABEL[MODE_TO_VALUE[last.state]]
+
     @property
     def current_option(self) -> str | None:
         params = self.coordinator.data.get("params", {}) if self.coordinator.data else {}
         try:
             value = int(params.get("mode"))
         except (TypeError, ValueError):
-            return None
-        return VALUE_TO_MODE.get(value, str(value))
+            # No dp yet (first poll still pending): fall back to the restored
+            # label so the selector does not flash an unknown state.
+            return self._attr_state if self._attr_state in self._attr_options else None
+        return VALUE_TO_MODE_LABEL.get(value, str(value))
 
     async def async_select_option(self, option: str) -> None:
-        value = MODE_TO_VALUE.get(option)
+        # Accept the Chinese label (what the UI sends) and the legacy English
+        # code, so existing scripts/automations that call this service with
+        # "smart" keep working after the relabel.
+        value = MODE_LABEL_TO_VALUE.get(option)
+        if value is None:
+            value = MODE_TO_VALUE.get(option)
         if value is None:
             raise ValueError(f"unknown clean mode {option}")
         try:

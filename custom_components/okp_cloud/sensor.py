@@ -20,6 +20,7 @@ from .const import (
     FAN_STRONG,
     SENSOR_DP_REQUIREMENTS,
     VALUE_TO_MODE,
+    VALUE_TO_MODE_LABEL,
 )
 from .coordinator import OkpCoordinator
 
@@ -249,7 +250,7 @@ class OkpSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
                     "mId": timer.get("mId"),
                     "enabled": bool(timer.get("enabled")),
                     "repeat": timer.get("localAt") or timer.get("at"),
-                    "mode": VALUE_TO_MODE.get(mode, action.get("mode")),
+                    "mode": VALUE_TO_MODE_LABEL.get(mode, action.get("mode")),
                     "fan_speed": WIND_TO_FAN_SPEED.get(wind, action.get("wind")),
                 }
             )
