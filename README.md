@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.5.0（2026-11-02）：**修掉「重新验证后一切正常、一重启就失效」**。现象：19:18 重新验证成功，`cloud_session = rt`、电量/在线全部正常；19:26 重启 HA，26 秒内就报 `coolkit refresh failed: 401 cannot found access token info`，回到 `stale`。根因是**令牌只写了一部分进配置条目**：`config_flow._entry_data()` 手挑了几个 key（`coolkit_at` / `coolkit_at_expire` / `coolkit_rt` ...），漏了 `coolkit_at_lifetime`、`coolkit_at_expire_inferred` 和 v1.4.11 新增的 rt 时间戳；`async_step_reauth` 的静默恢复分支也是手拼字段。这类「半套令牌」条目能加载、能跑一次，重启后恢复出来的会话就被云端拒绝。这一版：① 新增 `const.persisted_token_fields(api)` 作为**唯一**写入入口，coordinator 轮询、配置流程、重新验证静默恢复、启动升级路径四处全部改用它，杜绝字段漂移；② 启动自检：从条目恢复时若发现「有 rt 但没有 at 过期时间」这类残缺组合，先打日志说清楚，再用 rt 续期一次后才进轮询，不再带着来路不明的会话开跑；③ 启动时以 debug 打出 `OKP session restored from the config entry: {...}`，下次再出问题能直接看到恢复到了什么
+
 - v1.4.11（2026-11-02）：**别让「看一眼」把会话看没了**。部署 v1.4.10 时用 `okp_cloud.refresh_session` 做验证，结果 CoolKit 云端在续期时轮换了刷新令牌（rt）并作废旧令牌，几小时后两条令牌链同时失效（`coolkit refresh failed: 401 cannot found access token info` + `4001 请先登录`），只能重新输密码。这一版：① `refresh_session` 改为**默认只读**（`mode: report`，不发任何网络请求、不消耗令牌），要真续期必须显式传 `force: true`；② 认证失败计数分级：rt 已被云端拒绝（已清空）按满速计数，rt 仍在的临时失败半速计数——连续三次云端抖动不再弹密码框（弹一次就丢一次 App 会话）；③ 新增 rt 生命周期追踪：`coolkit_rt_issued_at` / `coolkit_rt_rejected_at` / `coolkit_rt_reject_count`，持久化到配置条目，下次会话失效能直接看出是哪个时间点被谁消耗
 
 - v1.4.10（2026-11-02）：**清扫模式选择器改中文**。`select.*_clean_mode` 的选项由 `smart / random / wall_follow / spiral` 改为 **智能 / 随机 / 沿边 / 螺旋**。① 状态机与传感器（`sensor.*_clean_mode`、定时任务的 `mode` 提示）内部仍用英文 code，避免破坏已有自动化与历史统计；② `select.select_option` 同时接受中文标签和旧的英文值，老脚本调用不会报 `unknown clean mode`；③ 增加 `RestoreEntity` 兼容：升级后重启时把 `.storage` 里恢复的旧英文状态映射为中文，避免首个轮询周期前显示 `unknown`

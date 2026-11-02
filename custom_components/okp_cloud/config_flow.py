@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -20,7 +21,13 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OkpApi, OkpApiError, OkpAuthError
-from .const import CONF_ACCOUNT, CONF_REALTIME, CONF_REALTIME_DEFAULT, DOMAIN
+from .const import (
+    CONF_ACCOUNT,
+    CONF_REALTIME,
+    CONF_REALTIME_DEFAULT,
+    DOMAIN,
+    persisted_token_fields,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,17 +148,17 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             CONF_ACCOUNT: account,
             "user_id": api.user_id,
             "access_token": api.access_token,
-            # Keep the CoolKit token so HA restarts reuse the same cloud
-            # session instead of logging in again (login kicks the phone
-            # app session on OKP's single-session cloud).
-            "coolkit_at": api.coolkit_at,
-            "coolkit_at_expire": api.coolkit_at_expire,
-            # v1.2.2: the CoolKit refresh token is what renews the cloud
-            # session after the OKP access token expires — without it the
-            # integration goes dead a few hours after every login.
-            "coolkit_rt": api.coolkit_rt,
-            "coolkit_apikey": api.coolkit_apikey,
-            "coolkit_region": api.coolkit_region,
+            # Keep the CoolKit token pair so HA restarts reuse the same cloud
+            # session instead of logging in again (login kicks the phone app
+            # session on OKP's single-session cloud).
+            #
+            # v1.5.0: *all* token fields come from persisted_token_fields().
+            # Hand-listing a subset here is what produced "half a token pair"
+            # entries - an at with no expiry, no learned lifetime and no rt
+            # timestamp - which load fine, work until the next restart, then
+            # die with "401 cannot found access token info". New token fields
+            # must be added there, never here.
+            **persisted_token_fields(api),
             "home_id": home_id,
             # flat first-device fields (legacy)
             "device_id": first.get("id"),
@@ -267,18 +274,23 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         recovered = await self._try_rt_recovery()
         if recovered is not None:
             entry = self._get_reauth_entry()
+            # v1.5.0: write the *complete* token set (see
+            # persisted_token_fields) - hand-picking keys here is what left
+            # the entry with an at that had no expiry and no refresh
+            # timestamp, so the session died on the next restart.
+            recovered.coolkit_refreshed_at = recovered.coolkit_refreshed_at or time.time()
             new_data = {
                 **entry.data,
                 "access_token": recovered.access_token,
-                "coolkit_at": recovered.coolkit_at,
-                "coolkit_at_expire": recovered.coolkit_at_expire,
-                "coolkit_at_expire_inferred": recovered.at_expire_inferred,
-                "coolkit_at_lifetime": recovered.at_lifetime,
-                "coolkit_rt": recovered.coolkit_rt,
-                "coolkit_apikey": recovered.coolkit_apikey,
-                "coolkit_region": recovered.coolkit_region,
+                **persisted_token_fields(recovered),
             }
             self.hass.config_entries.async_update_entry(entry, data=new_data)
+            _LOGGER.info(
+                "OKP reauth aborted by silent rt recovery; tokens persisted "
+                "(at expires %s, rt issued %s)",
+                recovered.coolkit_at_expire or "unknown",
+                int(recovered.coolkit_rt_issued_at) or "unknown",
+            )
             return self.async_abort(reason="reauth_successful")
         return await self.async_step_reauth_confirm()
 

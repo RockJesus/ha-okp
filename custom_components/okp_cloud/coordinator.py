@@ -27,6 +27,7 @@ from .const import (
     REAUTH_AFTER_FAILURES,
     RELOGIN_COOLDOWN_SECONDS,
     SETUP_RETRY_SECONDS,
+    persisted_token_fields,
 )
 from .map_render import parse_map_paths, render_map_png
 
@@ -464,23 +465,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if entry is None:
             return
-        new_data = {
-            **entry.data,
-            "coolkit_at": api.coolkit_at,
-            "coolkit_at_expire": api.coolkit_at_expire,
-            # v1.2.12: persist how the expiry was obtained and the learned
-            # token lifetime, so the diagnostic sensor keeps telling the truth
-            # after a restart instead of reporting an inferred value as if the
-            # cloud had provided it.
-            "coolkit_at_expire_inferred": api.at_expire_inferred,
-            "coolkit_at_lifetime": api.at_lifetime,
-            "coolkit_rt": api.coolkit_rt,
-            "coolkit_rt_issued_at": api.coolkit_rt_issued_at,
-            "coolkit_rt_rejected_at": api.coolkit_rt_rejected_at or None,
-            "coolkit_rt_reject_count": api.coolkit_rt_reject_count,
-            "coolkit_apikey": api.coolkit_apikey,
-            "coolkit_region": api.coolkit_region,
-        }
+        new_data = {**entry.data, **persisted_token_fields(api)}
         self._token_persist_mark = api.coolkit_refreshed_at
         if new_data != entry.data:
             self.hass.config_entries.async_update_entry(entry, data=new_data)

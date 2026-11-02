@@ -28,6 +28,7 @@ from .const import (
     SERVICE_REFRESH_SESSION,
     SERVICE_SET_TIMER,
     SETUP_RETRY_SECONDS,
+    persisted_token_fields,
 )
 from .coordinator import OkpCoordinator
 from .ws import OkpRealtime
@@ -346,23 +347,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.coolkit_rt_rejected_at = float(entry.data.get("coolkit_rt_rejected_at") or 0)
     api.coolkit_rt_reject_count = int(entry.data.get("coolkit_rt_reject_count") or 0)
 
+    # v1.5.0: startup self-check. A "half a token pair" entry (an at with no
+    # expiry, or an at with no refresh timestamp) is what older builds wrote
+    # when the reauth flow hand-picked keys. Those entries load, serve one
+    # session, then fail with "401 cannot found access token info" on the next
+    # restart - so rather than entering the poll with a session of unknown
+    # quality, say it out loud and renew before the first read.
+    restored = {
+        "has_at": bool(api.coolkit_at),
+        "has_rt": bool(api.coolkit_rt),
+        "at_expire": api.coolkit_at_expire,
+        "at_expire_inferred": api.at_expire_inferred,
+        "rt_issued_at": int(api.coolkit_rt_issued_at) or None,
+    }
+    _LOGGER.debug("OKP session restored from the config entry: %s", restored)
+    if api.coolkit_rt and (not api.coolkit_at or not api.coolkit_at_expire):
+        _LOGGER.warning(
+            "OKP config entry held an incomplete token pair (%s); renewing "
+            "with the refresh token before the first poll",
+            restored,
+        )
+        try:
+            await api.refresh_coolkit_by_rt()
+        except (OkpApiError, OkpAuthError) as err:
+            # Non-fatal: the poll cycle retries and prompts for reauth if the
+            # refresh token is gone for good.
+            _LOGGER.debug("OKP startup renewal from rt failed: %s", err)
+        else:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, **persisted_token_fields(api)}
+            )
+            _LOGGER.info(
+                "OKP startup renewal succeeded (at expires %s, source %s)",
+                api.coolkit_at_expire or "unknown",
+                "inferred" if api.at_expire_inferred else "cloud",
+            )
+
     # Upgrade path for entries created before v1.2.2 (only `coolkit_at` was
     # stored): mint a refresh token while the OKP access token still works,
     # otherwise the session dies as soon as the CoolKit token expires.
     if not api.coolkit_rt and api.access_token:
         try:
             await api.refresh_coolkit_token()
-            new_data = {
-                **entry.data,
-                "coolkit_at": api.coolkit_at,
-                "coolkit_at_expire": api.coolkit_at_expire,
-                "coolkit_rt": api.coolkit_rt,
-                "coolkit_apikey": api.coolkit_apikey,
-                "coolkit_region": api.coolkit_region,
-            }
-            if new_data != entry.data:
-                hass.config_entries.async_update_entry(entry, data=new_data)
-                _LOGGER.debug("OKP CoolKit refresh token captured on setup")
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, **persisted_token_fields(api)}
+            )
+            _LOGGER.debug("OKP CoolKit refresh token captured on setup")
         except (OkpApiError, OkpAuthError) as err:
             # Non-fatal: the poll cycle retries and raises reauth if needed.
             _LOGGER.debug("OKP could not capture a CoolKit refresh token: %s", err)

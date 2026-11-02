@@ -59,9 +59,8 @@ CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 # token to expire, which is the only way to prove the session is independent
 # of the phone app.
 SERVICE_REFRESH_SESSION = "refresh_session"
-# v1.3.0: enable/disable one device-side schedule (the ``timers`` dp) without
-# touching the others. The app does the same thing: it rewrites the whole
-# ``timers`` array with a single entry's ``enabled`` flag flipped.
+
+
 SERVICE_SET_TIMER = "set_timer"
 
 # v1.4.2: manual remote (the app's joystick). The capture shows the app
@@ -259,3 +258,32 @@ SENSOR_DP_REQUIREMENTS = {
 # select / switch platforms
 SELECT_REQUIRES_DP = "mode"
 SWITCH_REQUIRES_DP = "carpetBooster"
+
+
+def persisted_token_fields(api) -> dict:
+    """The *complete* set of token fields to write into the config entry.
+
+    v1.5.0: this exists because writing a subset is how a session dies on
+    restart. ``async_step_reauth`` used to hand-pick a few keys, so the entry
+    ended up holding an ``at`` with no expiry and no refresh timestamp ("half
+    a token pair"): it worked until the next restart, then the restored
+    session was rejected by the cloud with ``401 cannot found access token
+    info``. Every writer - the coordinator after a poll, the reauth flow and
+    the silent rt recovery - now goes through here, so the stored shape can
+    never depend on which code path happened to save it last.
+    """
+    return {
+        "coolkit_at": api.coolkit_at,
+        "coolkit_at_expire": api.coolkit_at_expire,
+        "coolkit_at_expire_inferred": api.at_expire_inferred,
+        "coolkit_at_lifetime": api.at_lifetime,
+        "coolkit_rt": api.coolkit_rt,
+        "coolkit_rt_issued_at": api.coolkit_rt_issued_at or None,
+        "coolkit_rt_rejected_at": api.coolkit_rt_rejected_at or None,
+        "coolkit_rt_reject_count": api.coolkit_rt_reject_count,
+        "coolkit_apikey": api.coolkit_apikey,
+        "coolkit_region": api.coolkit_region,
+    }
+# v1.3.0: enable/disable one device-side schedule (the ``timers`` dp) without
+# touching the others. The app does the same thing: it rewrites the whole
+# ``timers`` array with a single entry's ``enabled`` flag flipped.
