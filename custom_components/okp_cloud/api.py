@@ -132,6 +132,12 @@ class OkpApi:
         # revoked ("cannot found access token info"). While this is set the
         # socket's token is authoritative and no renewal is attempted here.
         self.session_socket_at: str | None = None
+        # v1.5.4: verdict of every candidate tried by the last renewal, e.g.
+        # ["refresh token -> ok"] or
+        # ["refresh token -> 401: cannot found access token info", ...].
+        # Surfaced by refresh_session so "the rt is dead" can be told apart
+        # from "the rt was never reached".
+        self.last_refresh_attempts: list[str] = []
         # Only warn once per process when okplife hands out at-only credentials.
         self._warned_no_rt: bool = False
         # Set when CoolKit rejected the access token. The token itself is kept
@@ -343,19 +349,35 @@ class OkpApi:
         # value the gateway accepts is undocumented - the access token is the
         # natural choice, but it is usually the thing that expired, so the
         # refresh token is tried as a second candidate.
-        candidates: list[tuple[str, str]] = []
+        # v1.5.4: the refresh token is tried *first*, without leaning on the
+        # access token. Evidence that this is the right order: after a restart
+        # (and after any app login) the cloud answers every call carrying the
+        # old at with "401 cannot found access token info" - it rejects the
+        # *header* before it ever looks at the rt in the body. Listing the at
+        # candidate first therefore decided the outcome with a stale
+        # credential and never gave a perfectly good rt a chance.
+        # ``None`` (no Authorization header) is tried last to learn whether the
+        # gateway still requires one at all.
+        candidates: list[tuple[str | None, str]] = [
+            ("Bearer " + self.coolkit_rt, "refresh token"),
+        ]
         if self.coolkit_at:
             candidates.append(("Bearer " + self.coolkit_at, "access token"))
-        candidates.append(("Bearer " + self.coolkit_rt, "refresh token"))
+        candidates.append((None, "no authorization header"))
 
         last_error: str | None = None
+        # v1.5.4: keep every attempt's verdict. "rt also rejected" used to be
+        # indistinguishable from "the request never reached the rt", and that
+        # ambiguity is what kept sending the user to a password re-auth.
+        self.last_refresh_attempts = []
         for auth_value, label in candidates:
             headers = {
-                "authorization": auth_value,
                 "x-ck-appid": CK_APP_ID,
                 "domain-name": CK_DOMAIN,
                 "content-type": "application/json",
             }
+            if auth_value:
+                headers["authorization"] = auth_value
             try:
                 async with self._session.post(
                     f"{CK_BASE}{CK_ENDPOINT_USER_REFRESH}",
@@ -398,6 +420,7 @@ class OkpApi:
                     # reauthentication, while this one tolerates 25 days.
                     self.coolkit_at_expire = int(now) + self.at_lifetime
                     self.at_expire_inferred = True
+                self.last_refresh_attempts.append(f"{label} -> ok")
                 self.coolkit_refreshed_at = time.time()
                 self.session_source = "rt"
                 if self.session_origin in ("none", "rt-renewal"):
@@ -413,6 +436,7 @@ class OkpApi:
 
             msg = body.get("msg") or body.get("message") or "unknown"
             last_error = f"{error}: {msg}"
+            self.last_refresh_attempts.append(f"{label} -> {last_error}")
             if error in (400, 401):
                 # The header was rejected or the token in it is unknown. That
                 # says nothing about the refresh token itself, so try the next

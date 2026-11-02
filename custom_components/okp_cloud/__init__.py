@@ -180,6 +180,11 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                     entry is not None and entry.state is ConfigEntryState.SETUP_ERROR
                 ),
                 "refresh_fields": api.last_refresh_fields,
+                # v1.5.4: verdict of every candidate the last renewal tried.
+                # An rt that answers 402/403 is genuinely dead; one that only
+                # ever sees a 401 on the *access token* candidate was never
+                # reached. This list is what tells the two apart.
+                "refresh_attempts": api.last_refresh_attempts,
                 "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
                 "realtime": realtime.state if realtime is not None else None,
                 "error": error,
