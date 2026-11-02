@@ -410,7 +410,7 @@ class OkpApi:
             or (not self.coolkit_at_expire and stale)
         ):
             return
-        # After the token was cleared (401/402/403) or is missing, a refresh
+        # After the token was cleared (401/402) or is missing, a refresh
         # may fail transiently; throttle repeated attempts so a down OKP
         # network cannot cause a refresh storm against the cloud.
         if time.time() - self._last_refresh_try < REFRESH_MIN_INTERVAL:
@@ -479,10 +479,11 @@ class OkpApi:
         if body.get("error"):
             error = body.get("error")
             msg = body.get("msg") or body.get("message") or "unknown"
-            # A 401/402/403 CoolKit response means the access token is stale
-            # or invalid. Clear it so the next call refreshes, and surface it
-            # as an auth error so the coordinator can re-login automatically.
-            if error in (401, 402, 403):
+            # Per official CoolKit error codes: 401 = token invalidated
+            # (logged in elsewhere), 402 = token expired. 403 = "api not
+            # found" (route/permission problem) and must NOT wipe a token
+            # that still works - surface it as a plain API error instead.
+            if error in (401, 402):
                 self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit {error}: {msg}")
             raise OkpApiError(f"coolkit error {error}: {msg}")
@@ -548,7 +549,9 @@ class OkpApi:
             msg = body.get("msg") or body.get("message") or "unknown"
             # Map endpoints return 405 (NoSuchKey) while the map for a
             # cleaning run is not ready yet - not an auth problem.
-            if error in (401, 402, 403):
+            # 403 = "api not found" per official docs: routing issue,
+            # not a token problem, so don't mark the token rejected.
+            if error in (401, 402):
                 self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit {error}: {msg}")
             raise OkpApiError(f"coolkit error {error}: {msg}")
@@ -605,7 +608,9 @@ class OkpApi:
         if body.get("error"):
             error = body.get("error")
             msg = body.get("msg") or body.get("message") or "unknown"
-            if error in (401, 402, 403):
+            # 401/402 = token invalid/expired (official docs). 403 = api
+            # not found - a routing issue, keep the token untouched.
+            if error in (401, 402):
                 self._mark_at_rejected()
                 raise OkpAuthError(f"coolkit ota {error}: {msg}")
             raise OkpApiError(f"coolkit ota error {error}: {msg}")

@@ -25,12 +25,16 @@ The protocol was reconstructed from the v3.4.0 app capture:
     -> "ping"  /  <- "pong"                       (about every hbInterval/2)
     <- {"action":"update","deviceid","apikey","userAgent":"device","d_seq",
         "params":{...}}                           (full or partial dp set)
+    <- {"action":"sysmsg","deviceid","params":{"online":true|false}}
+                                                  (device connects/disconnects)
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import random
+import string
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -338,7 +342,8 @@ class OkpRealtime:
                 "apikey": self.api.coolkit_apikey,
                 "appid": CK_APP_ID,
                 "at": self.api.coolkit_at,
-                "nonce": "",
+                # Official docs: 8-char alphanumeric random value, required.
+                "nonce": "".join(random.choices(string.ascii_lowercase + string.digits, k=8)),
                 "sequence": str(now_ms),
                 "ts": int(time.time()),
                 "userAgent": "app",
@@ -475,6 +480,11 @@ class OkpRealtime:
                     f"{payload.get('reason') or payload.get('msg') or ''}"
                 ).strip()
             return
+        if action == "sysmsg":
+            # Official push for device online/offline transitions
+            # ({"action":"sysmsg","deviceid":..,"params":{"online":false}}).
+            self._handle_sysmsg(payload)
+            return
         if action != "update":
             return
 
@@ -492,6 +502,23 @@ class OkpRealtime:
             return
         self.pushes += 1
         coordinator.async_apply_push(params)
+
+    def _handle_sysmsg(self, payload: dict[str, Any]) -> None:
+        """Forward a device online/offline push to its coordinator.
+
+        Offline notifications are cloud-generated (no device frame follows
+        them), so unlike ``update`` frames there is no userAgent filter here.
+        """
+        device_id = payload.get("deviceid")
+        params = payload.get("params")
+        if not device_id or not isinstance(params, dict) or "online" not in params:
+            return
+        coordinator = self._coordinators.get(str(device_id))
+        if coordinator is None:
+            return
+        online = bool(params["online"])
+        _LOGGER.debug("OKP realtime sysmsg: device %s %s", device_id, "online" if online else "offline")
+        coordinator.async_apply_online(online)
 
     # -- diagnostics ------------------------------------------------------
 

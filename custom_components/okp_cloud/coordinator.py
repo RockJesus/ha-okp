@@ -198,6 +198,27 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_push_poll = now
             self.hass.async_create_task(self.async_request_refresh())
 
+    @callback
+    def async_apply_online(self, online: bool) -> None:
+        """Apply a cloud-side device online/offline notification.
+
+        The CoolKit socket delivers ``{"action":"sysmsg","params":{"online":..}}``
+        the moment a device connects to or disconnects from the cloud. Without
+        it the offline transition is only noticed by the next HTTP poll (up to
+        180 s later). The entities themselves deliberately stay available and
+        keep their last values - this only flips the reported online flag, so
+        the connection sensor and vacuum attributes react immediately. The
+        next HTTP poll reconciles anything the socket missed.
+        """
+        if not self.data:
+            return
+        new_data = dict(self.data)
+        new_data["online"] = bool(online)
+        item = dict(new_data.get("item") or {})
+        item["online"] = bool(online)
+        new_data["item"] = item
+        self.async_set_updated_data(new_data)
+
     def timers(self) -> list[dict[str, Any]]:
         """Device-side schedules (the ``timers`` dp), or an empty list."""
         params = (self.data or {}).get("params") or {}
