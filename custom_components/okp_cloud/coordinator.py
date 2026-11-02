@@ -645,6 +645,12 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     await self.api.logout_coolkit_token()
                 except (OkpApiError, OkpAuthError) as exc:
                     _LOGGER.debug("OKP explicit logout before renewal failed: %s", exc)
+                except Exception as exc:  # noqa: BLE001 - never block recovery
+                    # v1.5.2: the release call is best effort. It must never
+                    # stop the renewal below, so even an unexpected error
+                    # (a NameError in an unreleased build did exactly that and
+                    # left the whole first refresh "unknown") is swallowed.
+                    _LOGGER.debug("OKP explicit logout raised unexpectedly: %s", exc)
                 try:
                     if await self.api.refresh_coolkit_by_rt():
                         item = await self.api.get_thing_state(self.device_id)
@@ -668,7 +674,10 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif not self.api.coolkit_rt:
                 self.last_rt_probe_at = now
                 self.last_rt_probe_result = "no refresh token held"
-            # v1.4.11: two failure qualities, two different speeds.
+            # v1.4.11: two failure qualities, two different speeds;
+            # v1.5.2: the probe above is best effort - it must never abort the
+            # accounting below, or the reauth prompt never fires and the entry
+            # sits in "unknown" forever.
             #
             # The refresh token is gone (the cloud rejected it in
             # refresh_coolkit_by_rt, which clears it): only a password login
