@@ -418,21 +418,33 @@ class OkpApi:
         # 1) Preferred: renew the CoolKit session with its own refresh token.
         #    Independent of the OKP access token, so it keeps working after
         #    the OKP token expires.
+        # v1.4.9: while a refresh token is held, the rt route is the *only*
+        # renewal path we try. A transient rt failure (network hiccup, cloud
+        # 5xx) used to fall straight through to the okplife route; when the
+        # phone app had already kicked the OKP access token, that fallback
+        # raised OkpAuthError and pushed the user into a password re-auth -
+        # which kicks the app session again, and the two sides kept
+        # knocking each other out. Retrying rt next cycle instead keeps the
+        # integration independent of the app while a refresh token exists.
         if self.coolkit_rt:
             try:
                 if await self.refresh_coolkit_by_rt():
                     return
-            except OkpAuthError as err:
-                # The refresh token itself was rejected - the session is back
-                # to depending on the OKP login token, which the phone app
-                # kicks out. Worth a warning, it explains the next 4001.
-                _LOGGER.warning(
-                    "OKP CoolKit refresh token rejected (%s); session falls "
-                    "back to the OKP login token",
-                    err,
-                )
             except OkpApiError as err:
-                _LOGGER.debug("OKP rt refresh failed, falling back to okplife: %s", err)
+                if self.coolkit_rt is None:
+                    # refresh_coolkit_by_rt only clears the token when the
+                    # cloud rejected it (402/403): the session really is
+                    # back to depending on the OKP login token.
+                    _LOGGER.warning(
+                        "OKP CoolKit refresh token rejected (%s); session "
+                        "falls back to the OKP login token",
+                        err,
+                    )
+                else:
+                    # Token still held - the failure was transient. Retry on
+                    # the next poll instead of masking it with the
+                    # app-dependent okplife route.
+                    raise
         # 2) Fallback: ask okplife for a brand new CoolKit token. Needs a live
         #    OKP access token; raises OkpAuthError (-> reauth) when it is gone.
         await self.refresh_coolkit_token()

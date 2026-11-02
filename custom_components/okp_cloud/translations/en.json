@@ -19,7 +19,7 @@
       },
       "reauth_confirm": {
         "title": "OKP Cloud Re-authentication",
-        "description": "The login token has expired. Re-enter your account and password to restore the connection.",
+        "description": "The login token has expired. Re-enter your account and password to restore the connection.\n\nNote: submitting the password login temporarily signs the phone app out (the OKP cloud allows a single session). In most cases no password is needed: the integration first tries to recover the session silently with the CoolKit refresh token; this form only appears when that token is dead too.",
         "data": {
           "account": "Phone / Account",
           "password": "Password"

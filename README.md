@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.4.9（2026-11-02）：**App 登录与集成会话解耦**。① `ensure_coolkit_token`：只要 CoolKit 刷新令牌（rt）还在，rt 刷新就是唯一续期路径——rt 临时失败（网络抖动/云端 5xx）不再回退到 okplife 路由；此前 App 登录踢掉 OKP 令牌后，okplife 回退必然抛认证错误并推进 reauth 计数，逼用户输密码（密码登录又把 App 踢回去，两边互踢的恶性循环）。rt 被云端明确拒绝（402/403，此时 rt 已被清空）才回退 okplife。② reauth 流程静默自愈：进入密码表单前，先用配置条目里存的 rt 尝试续期一次，成功则直接更新令牌并结束 reauth——App 登录顶掉 OKP 令牌这种最常见场景下，**无需输密码、App 会话不受任何影响**；只有 rt 也死了才出现密码表单。③ reauth 表单文案明确提示「提交密码会临时挤掉 App 登录」
+
 - v1.4.8（2026-11-02）：**热修复 v1.4.7 引入的卸载崩溃**。v1.4.7 用 `entry.async_on_unload(task.cancel)` 取消重试任务，而 `Task.cancel()` 返回 `True`；Home Assistant 把 unload 回调的非 `None` 返回值当成待等待的协程，于是卸载报 `a coroutine was expected, got True`，条目卡在 `failed_unload`——重新验证完成后无法重载、所有实体变 `unavailable`。现改为显式 `def _cancel_retry_task(): task.cancel()`（返回 `None`）
 
 - v1.4.7（2026-11-02）：**修复「首次刷新失败后集成静默瘫痪」**。场景：HA 重启时云端会话已失效（App 登录顶号，CoolKit 返回 `401: cannot found access token info`、okplife 返回 `4001: 请先登录`），`async_config_entry_first_refresh()` 抛错，而 Home Assistant 在这种情况下**不会**排下一次定时刷新——于是轮询彻底停摆：`last_poll_at` 冻在启动那一刻、`auth_failures` 永远停在 1、永远到不了第 3 次，「重新验证」提示永不出现，所有实体卡在最后一个值，只能手动重载（重载也只是重复同一个死循环）。现在：① 首次刷新失败后启动内部重试循环（每 120 秒一次，直到有轮询成功为止，条目卸载时自动取消），轮询恢复后自动交回定时器；② 首次刷新若因**凭据**失败，直接弹出重新验证提示（不再等 3 个永远不会到来的周期）；③ 日志把「will retry on poll」改成真实的「retrying every 120s」

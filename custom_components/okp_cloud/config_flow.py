@@ -214,6 +214,38 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             }
         )
 
+    async def _try_rt_recovery(self) -> OkpApi | None:
+        """Try to revive the session with the stored CoolKit refresh token.
+
+        v1.4.9: a login *into the phone app* kicks the integration's OKP
+        access token, which used to trigger a password re-auth - and that
+        password login kicked the app session right back. The CoolKit refresh
+        token survives app logins, so when it still works the whole reauth is
+        resolved silently: no password form, no app kicked, nothing for the
+        user to do. Returns the revived api, or None when rt is missing or
+        rejected (the caller shows the password form).
+        """
+        entry = self._get_reauth_entry()
+        if entry is None or not entry.data.get("coolkit_rt"):
+            return None
+        api = OkpApi(async_get_clientsession(self.hass))
+        api.access_token = entry.data.get("access_token")
+        api.user_id = entry.data.get("user_id")
+        api.coolkit_at = entry.data.get("coolkit_at")
+        api.coolkit_rt = entry.data.get("coolkit_rt")
+        api.coolkit_apikey = entry.data.get("coolkit_apikey")
+        api.coolkit_region = entry.data.get("coolkit_region")
+        try:
+            if await api.refresh_coolkit_by_rt():
+                _LOGGER.info(
+                    "OKP reauth resolved silently with the CoolKit refresh "
+                    "token; no password login needed (phone app untouched)"
+                )
+                return api
+        except OkpApiError as err:
+            _LOGGER.debug("OKP rt recovery during reauth failed: %s", err)
+        return None
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
@@ -225,7 +257,29 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         task ("Task exception was never retrieved"), leaving the entry stuck
         until it was deleted and re-added. The form therefore lives in a
         separate confirm step.
+
+        v1.4.9: before showing the password form, the stored CoolKit refresh
+        token gets one chance to renew the session on its own - a phone-app
+        login only kicks the OKP access token, so a working rt token means
+        the reauth can end right here without a password (and without
+        kicking the app back).
         """
+        recovered = await self._try_rt_recovery()
+        if recovered is not None:
+            entry = self._get_reauth_entry()
+            new_data = {
+                **entry.data,
+                "access_token": recovered.access_token,
+                "coolkit_at": recovered.coolkit_at,
+                "coolkit_at_expire": recovered.coolkit_at_expire,
+                "coolkit_at_expire_inferred": recovered.at_expire_inferred,
+                "coolkit_at_lifetime": recovered.at_lifetime,
+                "coolkit_rt": recovered.coolkit_rt,
+                "coolkit_apikey": recovered.coolkit_apikey,
+                "coolkit_region": recovered.coolkit_region,
+            }
+            self.hass.config_entries.async_update_entry(entry, data=new_data)
+            return self.async_abort(reason="reauth_successful")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
