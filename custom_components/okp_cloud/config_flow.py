@@ -95,6 +95,10 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         # token (multi-client, shares the cloud session without kicking the
         # phone app). Store it so HA restarts never need the OKP login again.
         await api.refresh_coolkit_token()
+        # v1.5.1: a password login is what makes the phone app drop its own
+        # session, so this origin is recorded (and persisted) as such.
+        api.session_origin = "reauth-password"
+        api.session_started_at = time.time()
         # v1.2.0: scan every home under the account (the v3.4.0 app lists
         # multiple homes; a device can live in any of them), then collect all
         # robot vacuums that have a CoolKit third_dev_id, deduplicated.
@@ -242,6 +246,16 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         api.coolkit_rt = entry.data.get("coolkit_rt")
         api.coolkit_apikey = entry.data.get("coolkit_apikey")
         api.coolkit_region = entry.data.get("coolkit_region")
+        # v1.5.1: carry the provenance over so a silent recovery is not
+        # reported as a password login in the persisted entry.
+        api.coolkit_rt_issued_at = float(entry.data.get("coolkit_rt_issued_at") or 0)
+        api.coolkit_rt_rejected_at = float(
+            entry.data.get("coolkit_rt_rejected_at") or 0
+        )
+        api.coolkit_rt_reject_count = int(
+            entry.data.get("coolkit_rt_reject_count") or 0
+        )
+        api.session_origin = "rt-renewal"
         try:
             if await api.refresh_coolkit_by_rt():
                 _LOGGER.info(

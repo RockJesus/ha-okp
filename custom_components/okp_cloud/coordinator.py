@@ -107,6 +107,14 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._move_lock = asyncio.Lock()
         self._move_generation = 0
         self._move_watchdog: asyncio.Task | None = None
+        # v1.5.1: outcome of the last "did the refresh token survive?" probe
+        # (see _async_update_data). Kept in memory only: it describes a single
+        # auth failure, and the persisted provenance fields cover the rest.
+        self.last_rt_probe_at: float = 0.0
+        self.last_rt_probe_result: str | None = None
+        # One "release + renew" probe per process: if the refresh token is
+        # rejected too, repeating it every cooldown only burns the session.
+        self._rt_probe_done: bool = False
 
     async def _maybe_trigger_reauth(self, err: OkpApiError | OkpAuthError) -> None:
         """Ask Home Assistant to start the reauth flow (user enters password).
@@ -620,7 +628,46 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # failed cycle counts, including the ones that only wait out the
             # cooldown — otherwise the "re-authentication required" prompt
             # would take half an hour to show up.
+            #
+            # v1.5.1: the cloud said "401 cannot found access token info" for
+            # a token it had issued itself. Stopping at a reauth prompt hides
+            # *who* took the session, so one more cause is ruled out first:
+            # the cloud may accept a session only once its predecessor was
+            # released (a QR login does log out the previous client). If the
+            # refresh token can mint a new session, nothing was taken - the
+            # old access token was simply revoked - so try it before any
+            # prompt. Once per process: if the token is refused too, repeating
+            # the probe every cycle would only burn the session.
             now = time.time()
+            if self.api.coolkit_rt and not self._rt_probe_done:
+                self._rt_probe_done = True
+                try:
+                    await self.api.logout_coolkit_token()
+                except (OkpApiError, OkpAuthError) as exc:
+                    _LOGGER.debug("OKP explicit logout before renewal failed: %s", exc)
+                try:
+                    if await self.api.refresh_coolkit_by_rt():
+                        item = await self.api.get_thing_state(self.device_id)
+                        self._persist_tokens()
+                        self.last_rt_probe_at = now
+                        self.last_rt_probe_result = "renewed"
+                        _LOGGER.info(
+                            "OKP session renewed after the cloud rejected the "
+                            "access token; the refresh token was still valid"
+                        )
+                        return item
+                except (OkpApiError, OkpAuthError) as exc:
+                    self.last_rt_probe_at = now
+                    self.last_rt_probe_result = f"rejected: {exc}"
+                    _LOGGER.warning(
+                        "OKP refresh token rejected after the cloud revoked the "
+                        "access token: %s - the session was taken over, not lost "
+                        "locally",
+                        exc,
+                    )
+            elif not self.api.coolkit_rt:
+                self.last_rt_probe_at = now
+                self.last_rt_probe_result = "no refresh token held"
             # v1.4.11: two failure qualities, two different speeds.
             #
             # The refresh token is gone (the cloud rejected it in

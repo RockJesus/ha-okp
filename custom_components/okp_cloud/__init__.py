@@ -134,6 +134,32 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 "rt_issued_at": api.coolkit_rt_issued_at or None,
                 "rt_rejected_at": api.coolkit_rt_rejected_at or None,
                 "rt_reject_count": api.coolkit_rt_reject_count,
+                # v1.5.1: who owns the current session and when it started,
+                # plus the outcome of the last "did the refresh token
+                # survive?" probe. Together with rt_issued_at these answer the
+                # only question that matters here: was the session taken by
+                # the app, or lost by the integration?
+                "session_origin": api.session_origin,
+                "session_started_at": api.session_started_at or None,
+                "last_rt_probe_at": (
+                    min(
+                        (
+                            c.last_rt_probe_at
+                            for c in coordinators.values()
+                            if c.last_rt_probe_at
+                        ),
+                        default=0.0,
+                    )
+                    or None
+                ),
+                "last_rt_probe_result": next(
+                    (
+                        c.last_rt_probe_result
+                        for c in coordinators.values()
+                        if c.last_rt_probe_result
+                    ),
+                    None,
+                ),
                 "last_auth_error": last_auth_error,
                 "reauth_pending": bool(
                     entry is not None and entry.state is ConfigEntryState.SETUP_ERROR
@@ -346,6 +372,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.coolkit_rt_issued_at = float(entry.data.get("coolkit_rt_issued_at") or 0)
     api.coolkit_rt_rejected_at = float(entry.data.get("coolkit_rt_rejected_at") or 0)
     api.coolkit_rt_reject_count = int(entry.data.get("coolkit_rt_reject_count") or 0)
+    # v1.5.1: provenance of the restored session (which path obtained it).
+    api.session_origin = entry.data.get("coolkit_session_origin") or (
+        "unknown" if (api.coolkit_at or api.coolkit_rt) else "none"
+    )
+    api.session_started_at = float(entry.data.get("coolkit_session_started_at") or 0)
 
     # v1.5.0: startup self-check. A "half a token pair" entry (an at with no
     # expiry, or an at with no refresh timestamp) is what older builds wrote
@@ -359,6 +390,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "at_expire": api.coolkit_at_expire,
         "at_expire_inferred": api.at_expire_inferred,
         "rt_issued_at": int(api.coolkit_rt_issued_at) or None,
+        "session_origin": api.session_origin,
+        "session_started_at": int(api.session_started_at) or None,
     }
     _LOGGER.debug("OKP session restored from the config entry: %s", restored)
     if api.coolkit_rt and (not api.coolkit_at or not api.coolkit_at_expire):
@@ -396,6 +429,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except (OkpApiError, OkpAuthError) as err:
             # Non-fatal: the poll cycle retries and raises reauth if needed.
             _LOGGER.debug("OKP could not capture a CoolKit refresh token: %s", err)
+
+    # v1.5.1: an entry written before this version carries no provenance.
+    # Persist what we restored so the next restart (and any post-mortem) can
+    # still tell which path produced the session. Only fills blanks - a
+    # restored origin is never overwritten here.
+    if api.session_origin == "unknown":
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, **persisted_token_fields(api)}
+        )
 
     # One coordinator per robot: independent poll cycle, map cache and
     # per-device entity state.

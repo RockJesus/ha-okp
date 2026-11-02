@@ -114,6 +114,13 @@ class OkpApi:
         self.coolkit_rt_issued_at: float = 0.0
         self.coolkit_rt_rejected_at: float = 0.0
         self.coolkit_rt_reject_count: int = 0
+        # v1.5.1: provenance of the session, persisted with the tokens.
+        # ``session_origin`` is the code path that produced the current
+        # session, ``session_started_at`` when it started. Together with
+        # ``coolkit_rt_issued_at`` this answers "did the app take the session,
+        # or did the integration lose it?" without touching the app.
+        self.session_origin: str = "none"
+        self.session_started_at: float = 0.0
         # Only warn once per process when okplife hands out at-only credentials.
         self._warned_no_rt: bool = False
         # Set when CoolKit rejected the access token. The token itself is kept
@@ -281,6 +288,15 @@ class OkpApi:
         self.coolkit_refreshed_at = time.time()
         self.at_rejected = False
         self.session_source = "okplife"
+        # v1.5.1: this path renews through the OKP login token, i.e. it is the
+        # path a password re-auth goes through. If no origin was recorded yet
+        # (fresh process, legacy entry) this is the honest answer. An origin
+        # that was already recorded - notably "reauth-password" - is kept, so
+        # the provenance of the session survives the renewal cycles that
+        # follow it.
+        if self.session_origin in ("none", "unknown"):
+            self.session_origin = "okplife"
+            self.session_started_at = time.time()
         if not self.coolkit_rt:
             if not self._warned_no_rt:
                 self._warned_no_rt = True
@@ -373,6 +389,9 @@ class OkpApi:
                     self.at_expire_inferred = True
                 self.coolkit_refreshed_at = time.time()
                 self.session_source = "rt"
+                if self.session_origin in ("none", "rt-renewal"):
+                    self.session_origin = "rt-renewal"
+                    self.session_started_at = time.time()
                 self.last_rt_error = None
                 _LOGGER.debug(
                     "OKP CoolKit token renewed via rt using the %s (expires %s)",
@@ -405,6 +424,49 @@ class OkpApi:
             self.coolkit_rt_reject_count += 1
             self.coolkit_rt = None
         raise OkpApiError(f"coolkit refresh failed: {last_error}")
+
+    async def logout_coolkit_token(self) -> bool:
+        """Best effort: release this client's CoolKit session.
+
+        v1.5.1. Used only on the recovery path, right before renewing with the
+        refresh token. Observed behaviour of this cloud is that a session is
+        replaced rather than shared: a new login (the app, a QR login) revokes
+        the previous access token, and the revoked token is then answered with
+        ``401 cannot found access token info``. Releasing our own token first
+        turns "revoked by someone else" into "released by us", which the
+        refresh route can act on.
+
+        The endpoint is undocumented and may simply not exist for this
+        account: any failure is logged at debug and reported as False. Nothing
+        is cleared locally - the caller decides what happens next.
+        """
+        if not self.coolkit_at:
+            return False
+        headers = {
+            "authorization": f"Bearer {self.coolkit_at}",
+            "x-ck-appid": CK_APP_ID,
+            "domain-name": CK_DOMAIN,
+            "content-type": "application/json",
+        }
+        try:
+            async with self._session.post(
+                f"{CK_BASE}{CK_ENDPOINT_USER_LOGOUT}",
+                json={"at": self.coolkit_at},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                body = await resp.json(content_type=None)
+        except (aiohttp.ClientError, ValueError) as err:
+            _LOGGER.debug("OKP explicit logout unavailable: %s", err)
+            return False
+        if body.get("error"):
+            _LOGGER.debug(
+                "OKP explicit logout refused (%s: %s); continuing",
+                body.get("error"),
+                body.get("msg") or body.get("message") or "unknown",
+            )
+            return False
+        return True
 
     async def ensure_coolkit_token(self) -> None:
         # Refresh when: no token, token within 5 min of expiry, or no expiry

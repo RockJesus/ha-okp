@@ -51,6 +51,8 @@ CK_ENDPOINT_OTA_QUERY = "/v2/device/ota/query"
 # OKP access token, which expires after a few hours and has no refresh
 # endpoint on the okplife side.
 CK_ENDPOINT_USER_REFRESH = "/v2/user/refresh"
+# v1.5.1: undocumented release endpoint, tried only on the recovery path.
+CK_ENDPOINT_USER_LOGOUT = "/v2/user/logout"
 CK_APP_ID = "fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z"  # x-ck-appid (OKP app)
 CK_DOMAIN = "douban"  # domain-name header seen in the OKP app capture
 
@@ -283,6 +285,13 @@ def persisted_token_fields(api) -> dict:
         "coolkit_rt_reject_count": api.coolkit_rt_reject_count,
         "coolkit_apikey": api.coolkit_apikey,
         "coolkit_region": api.coolkit_region,
+        # v1.5.1: provenance, so a post-mortem is answerable without guessing.
+        # ``coolkit_session_origin`` says which code path produced the *current*
+        # session ("reauth-password" = it cost the app its login,
+        # "rt-renewal" = it came from the refresh token and touched nobody),
+        # and ``coolkit_session_started_at`` says when that session began.
+        "coolkit_session_origin": api.session_origin,
+        "coolkit_session_started_at": api.session_started_at or None,
     }
 # v1.3.0: enable/disable one device-side schedule (the ``timers`` dp) without
 # touching the others. The app does the same thing: it rewrites the whole
