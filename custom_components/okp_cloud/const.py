@@ -148,6 +148,12 @@ REFRESH_MIN_INTERVAL = 120
 # cloud answers it while another client holds the session) used to pop the
 # prompt immediately, which looked like a random error banner.
 REAUTH_AFTER_FAILURES = 3
+# v1.4.7: gap between retries when the *first* refresh after a setup/reload
+# failed. Home Assistant does not schedule the interval refresh when
+# async_config_entry_first_refresh() raises, so without an explicit retry the
+# coordinator stopped polling for good - the failure counter stayed at 1, the
+# reauth prompt never appeared and every entity froze on its last value.
+SETUP_RETRY_SECONDS = 120
 # v1.2.11: how long to assume a freshly issued CoolKit access token lives when
 # the renewal response does not say. The gateway's documented policy is a
 # 30-day access token ("Access Token expires in 30 days... you can use Refresh

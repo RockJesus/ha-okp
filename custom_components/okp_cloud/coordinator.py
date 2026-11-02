@@ -26,6 +26,7 @@ from .const import (
     PUSH_POLL_GUARD_SECONDS,
     REAUTH_AFTER_FAILURES,
     RELOGIN_COOLDOWN_SECONDS,
+    SETUP_RETRY_SECONDS,
 )
 from .map_render import parse_map_paths, render_map_png
 
@@ -58,6 +59,10 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.account = account
         self.password = password
         self.last_error: str | None = None
+        # v1.4.7: True when the most recent failed cycle failed because of
+        # credentials rather than the network. __init__.py reads this to decide
+        # whether a failed *first* refresh deserves an immediate reauth prompt.
+        self.last_error_was_auth = False
         # Sweep map cache: PNG bytes + the cleaning run it belongs to.
         self.map_image: bytes | None = None
         self.map_cleaning_id: str | None = None
@@ -136,6 +141,32 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.warning("OKP reauth flow started: %s", err)
         except Exception as exc:  # noqa: BLE001 - reauth is best-effort
             _LOGGER.warning("OKP could not start reauth flow: %s", exc)
+
+    async def async_trigger_reauth(self, err: BaseException) -> None:
+        """Public entry point for the reauth prompt (used by setup)."""
+        await self._maybe_trigger_reauth(err)  # type: ignore[arg-type]
+
+    async def async_setup_retry_loop(self, delay: float = SETUP_RETRY_SECONDS) -> None:
+        """Keep polling after a failed first refresh.
+
+        ``async_config_entry_first_refresh()`` raises instead of scheduling the
+        next interval, so a failed first cycle used to stop the poll loop
+        entirely: ``last_poll_at`` froze, ``auth_failures`` never left 1, the
+        reauth prompt never appeared and every entity kept its last value
+        forever. Retry until a cycle gets through, after which the coordinator
+        schedules itself again. Cancelled on entry unload (see __init__.py).
+        """
+        while True:
+            await asyncio.sleep(delay)
+            try:
+                await self.async_refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - async_refresh already logs it
+                pass
+            if self.last_update_success:
+                _LOGGER.debug("OKP poll loop recovered after a failed first refresh")
+                return
 
     def async_schedule_refresh(self, delays: tuple[float, ...] = (4.0, 12.0)) -> None:
         """Re-read device state shortly after a control write.
@@ -593,6 +624,7 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # not count as an auth failure (it used to read "auth failed (5/3)"
             # on alternating polls) and it does not deserve a warning.
             self.last_error = str(err)
+            self.last_error_was_auth = False
             raise UpdateFailed(str(err)) from err
         except OkpAuthError as auth_err:
             # CoolKit token expired/rejected: renew it without touching the
@@ -620,15 +652,18 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     err = exc
             if err is not None:
                 self.last_error = str(err)
+                self.last_error_was_auth = True
                 self._log_auth_failure(err)
                 if self._auth_failures >= REAUTH_AFTER_FAILURES:
                     await self._maybe_trigger_reauth(err)
                 raise UpdateFailed(str(err)) from err
         except OkpApiError as err:
             self.last_error = str(err)
+            self.last_error_was_auth = False
             _LOGGER.warning("OKP state fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err
         self.last_error = None
+        self.last_error_was_auth = False
         self._auth_failures = 0
         self._last_auth_log = None
         self._persist_tokens()

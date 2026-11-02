@@ -27,6 +27,7 @@ from .const import (
     SERVICE_MOVE,
     SERVICE_REFRESH_SESSION,
     SERVICE_SET_TIMER,
+    SETUP_RETRY_SECONDS,
 )
 from .coordinator import OkpCoordinator
 from .ws import OkpRealtime
@@ -336,20 +337,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #
     # A failed first refresh normally raises ConfigEntryNotReady and parks the
     # whole entry in HA's "retrying setup" loop. That is the wrong signal here:
-    # the only realistic cause is an expired cloud session, which needs a
-    # reauth prompt — not a retry loop that hides every entity. Load the
-    # platforms anyway; the coordinator keeps polling and the reauth repair
-    # appears after REAUTH_AFTER_FAILURES cycles.
+    # the realistic causes are an expired cloud session (needs a reauth prompt)
+    # or a cloud hiccup (needs another try), not a broken configuration. Load
+    # the platforms anyway so the entities keep their last values, and keep the
+    # poll loop alive from here - HA does *not* schedule the interval refresh
+    # when async_config_entry_first_refresh() raises, which used to leave the
+    # coordinator polling never (frozen last_poll_at, auth_failures stuck at 1,
+    # no reauth prompt, entry dead until a manual reload).
+    reauth_errors: list[tuple[OkpCoordinator, BaseException]] = []
     if coordinators:
         results = await asyncio.gather(
             *(c.async_config_entry_first_refresh() for c in coordinators.values()),
             return_exceptions=True,
         )
-        for result in results:
-            if isinstance(result, BaseException):
-                _LOGGER.warning(
-                    "OKP first refresh failed (will retry on poll): %s", result
-                )
+        for coordinator, result in zip(coordinators.values(), results):
+            if not isinstance(result, BaseException):
+                continue
+            _LOGGER.warning(
+                "OKP first refresh failed (retrying every %ss): %s",
+                SETUP_RETRY_SECONDS,
+                result,
+            )
+            if coordinator.last_error_was_auth:
+                # Credentials, not the network: a password login is the only
+                # way out, so ask for it now instead of after three cycles that
+                # may never arrive.
+                reauth_errors.append((coordinator, result))
+            task = hass.async_create_background_task(
+                coordinator.async_setup_retry_loop(),
+                f"okp_cloud setup retry {coordinator.device_id}",
+            )
+            entry.async_on_unload(task.cancel)
 
     hass.data[DOMAIN][entry.entry_id] = {
         "api": api,
@@ -381,6 +399,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Raised last, once the platforms exist: a reauth flow started mid-setup
+    # can race with the entity registration above.
+    for coordinator, err in reauth_errors:
+        await coordinator.async_trigger_reauth(err)
+
     return True
 
 
