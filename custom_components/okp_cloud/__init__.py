@@ -367,7 +367,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator.async_setup_retry_loop(),
                 f"okp_cloud setup retry {coordinator.device_id}",
             )
-            entry.async_on_unload(task.cancel)
+            # NB: never register ``task.cancel`` directly - it returns True and
+            # Home Assistant treats a non-None return of an unload callback as
+            # an awaitable, which fails the whole unload with "a coroutine was
+            # expected, got True" (entry stuck in failed_unload, reload dead).
+            def _cancel_retry_task(task: asyncio.Task = task) -> None:
+                task.cancel()
+
+            entry.async_on_unload(_cancel_retry_task)
 
     hass.data[DOMAIN][entry.entry_id] = {
         "api": api,
