@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.6.3（2026-11-03）：**增加「条目自己到底拿到了什么」的诊断**。v1.6.2 修好 unique_id 撞车后现场确认：两个条目都 `session_state = rt`、`realtime = connected`、`error = None`，但 `entity_registry` 里 okp_cloud 的 34 个实体**全部挂在主账号条目下，副账号条目 0 个**。也就是说 `loaded` 并不等于「有设备」——一个条目可能加载成功却没有任何协调器，而界面和旧版诊断都看不出来。这一版给 `refresh_session` 的每条返回加上 `title` / `account` / `is_shared_entry` / `entity_scope` / `coordinator_count` / `devices[]`（含 `has_coordinator`），一眼能定位是「没扫到设备」还是「扫到了但没建协调器」。同时修正一处早先文档的错误描述：`vacuum.xiao_du_*` 实体属于**小度插件**，与 OKP 无关
+
 - v1.6.2（2026-11-03）：**修掉「多账号登录后不显示设备」**。用户按 v1.6.1 指南用副账号登录后，两个条目都 `loaded`、都扫到了同一台 K5 Ultra，但**第二个条目的实体一个都没出现**，日志刷满 `Platform okp_cloud does not generate unique IDs. ID okp_cloud_100258a68a already exists - ignoring vacuum.sao_di_ji_qi_ren`。根因：实体 `unique_id` 只由 CoolKit 设备 ID 拼成（`okp_cloud_<device_id>[_suffix]`），而同一台设备在主账号和副账号（或迁移期间的旧条目）里会出现两次 —— HA 按 unique_id 去重，第二份直接被丢弃，且**不报错到界面**，只在日志里留一行。这一版：① 新增 `const.entity_scope(entry)` —— **按条目创建时间排序，最早的那个条目保持原有 ID 不变**（已有安装的实体 ID、自动化、仪表盘全都不受影响），其余条目追加自己 `entry_id` 的 6 位后缀；② 六个平台（vacuum / sensor / select / switch / button / camera）共 12 个实体的 unique_id 全部接入；③ 同一台设备因此在两个账号下各有独立的实体组（如 `vacuum.sao_di_ji_qi_ren` 与 `vacuum.sao_di_ji_qi_ren_XXXXXX`），可同时在线、互不覆盖
 
 - v1.6.1（2026-11-03）：**「一个账号两处登录」给出可执行答案**。用户条件是只有一个手机号。查证结果：① CoolKit 注册接口「手机号和邮箱二选一」，没有绑定/叠加入口；OKP 登录接口对手机号与邮箱是两条独立路径（都返回「该帐号不存在」而非格式错误）——**同一手机号无法派出第二个账号**。② 但 OKP 官方 FAQ 明确支持**邮箱注册**且不需要第二个手机号（"create a new account using your email address"）。③ 因此可行路径是「主账号留在手机 App + 用邮箱注册副账号给集成」：OKP App 里把机器人分享给副邮箱 → HA 选择「共享账号」入口登录。这一版把这三步直接写进配置表单的说明文案里（中英双语），并新增 `docs/two-accounts-guide.md` 逐步操作文档，含权限勾选说明与旧条目处理方式

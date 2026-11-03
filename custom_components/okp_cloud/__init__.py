@@ -31,6 +31,7 @@ from .const import (
     ROBOT_DP_HINTS,
     SETUP_RETRY_SECONDS,
     coolkit_app_id,
+    entity_scope,
     persisted_token_fields,
 )
 from .coordinator import OkpCoordinator
@@ -129,6 +130,28 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 "entry_id": entry_id,
                 "mode": "renew" if force else "report",
                 "refreshed_by": refreshed_by,
+                # v1.6.3: what this entry actually owns. A second entry (shared
+                # account) that reports "loaded" but 0 coordinators is the one
+                # failure mode this diagnostic could not show before: entities
+                # never get created, and nothing in the UI says why.
+                "title": entry.title if entry is not None else None,
+                "account": (
+                    (entry.data.get(CONF_ACCOUNT) if entry is not None else None)
+                ),
+                "is_shared_entry": bool(
+                    entry is not None and entry.data.get("shared_from_main")
+                ),
+                "entity_scope": entity_scope(entry),
+                "devices": [
+                    {
+                        "name": d.get("name"),
+                        "third_dev_id": d.get("third_dev_id"),
+                        "model": d.get("model"),
+                        "has_coordinator": str(d.get("third_dev_id")) in coordinators,
+                    }
+                    for d in (_device_list(entry) if entry is not None else [])
+                ],
+                "coordinator_count": len(coordinators),
                 "session_state": api.session_state,
                 "has_refresh_token": bool(api.coolkit_rt),
                 "token_expires_at": api.coolkit_at_expire or None,
