@@ -45,7 +45,7 @@
     "error": {
       "cannot_connect": "Cannot connect to the OKP server. Check your network and try again.",
       "invalid_auth": "Invalid account or password",
-      "no_device": "No robot vacuum device found under this account",
+      "no_device": "No robot vacuum found under this account. For a shared account, check that: (1) the primary account has shared the robot to this account in the OKP app; (2) the share is active (the robot is visible in the app); (3) this account can see the robot when logged into the app.",
       "invalid_appid": "Invalid appid (a CoolKit appid is usually 32 characters)"
     },
     "abort": {

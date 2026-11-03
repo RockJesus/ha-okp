@@ -29,6 +29,7 @@ from .const import (
     CONF_SHARE_ACCOUNT,
     CONF_SHARE_PASSWORD,
     DOMAIN,
+    ROBOT_DP_HINTS,
     persisted_token_fields,
 )
 
@@ -40,6 +41,25 @@ DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_PASSWORD, default=""): cv.string,
     }
 )
+
+# CoolKit's thing list mixes every device type (plugs, cameras, sensors), so
+# the shared-account path must not adopt all of them. The dp hint list lives
+# in const.ROBOT_DP_HINTS and is shared with the rescan service.
+def _looks_like_robot(params: Any) -> bool:
+    """True when a CoolKit thing carries robot-vacuum data points.
+
+    Shared devices reach us only through the thing list, which has no model
+    string we can trust, so the decision is made on the dp payload: a robot
+    exposes cleaning state keys that no plug or sensor has. An empty payload
+    (offline device, cloud omitting params) counts as a robot - the caller
+    would rather show a device that turns out to be offline than silently
+    drop the robot the user just shared.
+    """
+    if not params:
+        return True
+    if not isinstance(params, dict):
+        return True
+    return any(key in params for key in ROBOT_DP_HINTS)
 
 
 class OkpOptionsFlow(OptionsFlow):
@@ -124,8 +144,6 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         # multiple homes; a device can live in any of them), then collect all
         # robot vacuums that have a CoolKit third_dev_id, deduplicated.
         homes = await api.get_homes()
-        if not homes:
-            raise OkpApiError("no homes found")
         devices: list[dict] = []
         seen: set[str] = set()
         first_home: str | None = None
@@ -139,9 +157,43 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     devices.append(dev)
             if devices and first_home is None:
                 first_home = home_id
+
+        # v1.6.4: the OKP device list is *home*-scoped and only returns the
+        # devices this account owns outright. A device shared to this account
+        # by another account does not appear there, which is why a
+        # shared-account entry used to load with zero coordinators and zero
+        # entities - the account authenticated fine, it simply "had no
+        # devices". CoolKit's own thing list is account-scoped and does carry
+        # itemType 2 (shared) entries, so it is the authoritative source for
+        # this case. It also works without any home at all.
+        try:
+            things = await api.list_coolkit_things()
+        except (OkpApiError, OkpAuthError) as err:
+            _LOGGER.debug("OKP coolkit thing list unavailable: %s", err)
+        else:
+            for thing in things:
+                third = thing.get("third_dev_id")
+                if not third or third in seen:
+                    continue
+                if not _looks_like_robot(thing.get("params")):
+                    continue
+                seen.add(third)
+                devices.append(
+                    {
+                        "id": thing.get("id"),
+                        "name": thing.get("name"),
+                        "third_dev_id": third,
+                        "third_product_id_tuya": thing.get("product_id"),
+                        "device_model_name": thing.get("model"),
+                        "item_type": thing.get("item_type"),
+                    }
+                )
+        if homes and first_home is None:
+            first_home = str(homes[0].get("home_id") or homes[0].get("id"))
+
         if not devices:
             return None
-        return api, first_home, devices
+        return api, first_home or "", devices
 
     def _entry_data(
         self, api: OkpApi, home_id: str, devices: list[dict], account: str

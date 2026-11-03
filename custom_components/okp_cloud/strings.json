@@ -45,7 +45,7 @@
     "error": {
       "cannot_connect": "无法连接 OKP 服务器，请检查网络后重试",
       "invalid_auth": "账号或密码错误",
-      "no_device": "账号下没有找到扫地机器人设备",
+      "no_device": "账号下没有找到扫地机器人设备。共享账号请确认：① 主账号已在 OKP App 里把机器人分享给该账号；② 分享已生效（App 里能看到设备）；③ 用副账号登录 App 能看到这台机器。",
       "invalid_appid": "appid 格式不正确（CoolKit appid 通常为 32 位字符）"
     },
     "abort": {
