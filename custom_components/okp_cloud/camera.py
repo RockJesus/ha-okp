@@ -11,7 +11,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, entity_scope
 from .coordinator import OkpCoordinator
 
 
@@ -22,6 +22,7 @@ async def async_setup_entry(
 ) -> None:
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -33,6 +34,7 @@ async def async_setup_entry(
                 third,
                 dev.get("name") or "OKP 扫地机器人",
                 dev.get("model"),
+                scope=scope,
             )
         )
     async_add_entities(entities)
@@ -50,12 +52,13 @@ class OkpMapCamera(CoordinatorEntity[OkpCoordinator], Camera):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         # CoordinatorEntity.__init__ does not chain to Camera.__init__,
         # which is required for provider attributes (_webrtc_provider etc).
         Camera.__init__(self)
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_map"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_map{scope}"
         # No ON_OFF feature: this camera only serves the rendered map image
         # (a toggle button without turn_on/turn_off would error in the UI).
         self._attr_device_info = DeviceInfo(

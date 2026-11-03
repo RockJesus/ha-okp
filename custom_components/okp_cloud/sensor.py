@@ -21,6 +21,7 @@ from .const import (
     SENSOR_DP_REQUIREMENTS,
     VALUE_TO_MODE,
     VALUE_TO_MODE_LABEL,
+    entity_scope,
 )
 from .coordinator import OkpCoordinator
 
@@ -153,6 +154,9 @@ async def async_setup_entry(
 ) -> None:
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
+    # v1.6.2: per-entry suffix so a device held by two entries (primary +
+    # shared account) does not collide on entity unique_id.
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -170,17 +174,17 @@ async def async_setup_entry(
             if dp and keys and dp not in keys:
                 continue
             entities.append(
-                OkpSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
+                OkpSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic, scope=scope)
             )
         # v1.2.0: coordinator-level sensors (cleaning history / OTA) are
         # created unconditionally - they do not depend on a specific dp.
         for key, value_fn, icon, device_class, unit, diagnostic in META_SENSORS:
             entities.append(
-                OkpMetaSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic)
+                OkpMetaSensor(coordinator, third, name, model, key, value_fn, icon, device_class, unit, diagnostic, scope=scope)
             )
-        entities.append(OkpOnlineSensor(coordinator, third, name, model))
-        entities.append(OkpSessionSensor(coordinator, third, name, model))
-        entities.append(OkpRealtimeSensor(coordinator, third, name, model))
+        entities.append(OkpOnlineSensor(coordinator, third, name, model, scope=scope))
+        entities.append(OkpSessionSensor(coordinator, third, name, model, scope=scope))
+        entities.append(OkpRealtimeSensor(coordinator, third, name, model, scope=scope))
     async_add_entities(entities)
 
 
@@ -201,11 +205,12 @@ class OkpSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         device_class: SensorDeviceClass | None,
         unit: str | None,
         diagnostic: bool,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self._key = key
         self._value_fn = value_fn
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}{scope}"
         self._attr_translation_key = key
         self._attr_icon = icon
         self._attr_device_class = device_class
@@ -274,11 +279,12 @@ class OkpMetaSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         device_class: SensorDeviceClass | None,
         unit: str | None,
         diagnostic: bool,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self._key = key
         self._value_fn = value_fn
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}{scope}"
         self._attr_translation_key = key
         self._attr_icon = icon
         self._attr_device_class = device_class
@@ -314,9 +320,10 @@ class OkpOnlineSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_online"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_online{scope}"
         self._attr_translation_key = "online"
         self._attr_icon = "mdi:cloud-check"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -359,9 +366,10 @@ class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_session"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_session{scope}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,
@@ -461,9 +469,10 @@ class OkpRealtimeSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_realtime"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_realtime{scope}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,

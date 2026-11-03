@@ -24,6 +24,7 @@ from .const import (
     FAN_STRONG,
     MODE_TO_VALUE,
     VALUE_TO_MODE,
+    entity_scope,
 )
 from .coordinator import OkpCoordinator
 
@@ -62,6 +63,7 @@ async def async_setup_entry(
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities: list[OkpVacuum] = []
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -74,6 +76,7 @@ async def async_setup_entry(
                 third,
                 dev.get("name") or "OKP 扫地机器人",
                 dev.get("model"),
+                scope=scope,
             )
         )
     async_add_entities(entities)
@@ -91,12 +94,13 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self.api = api
         self.device_id = device_id
         self._attr_name = "扫地机器人"
-        self._attr_unique_id = f"okp_cloud_{device_id}"
+        self._attr_unique_id = f"okp_cloud_{device_id}{scope}"
         self._attr_model = model
         self._attr_manufacturer = "OKP"
         # Attach the entity to a device in the device registry (auto-created).

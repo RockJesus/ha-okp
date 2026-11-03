@@ -24,6 +24,7 @@ from .const import (
     CARPET_DETECTION_DP,
     CARPET_DETECTION_REQUIRES_DP,
     DOMAIN,
+    entity_scope,
     SWITCH_REQUIRES_DP,
 )
 from .coordinator import OkpCoordinator
@@ -39,6 +40,7 @@ async def async_setup_entry(
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -54,9 +56,9 @@ async def async_setup_entry(
             dev.get("model"),
         )
         if not params or SWITCH_REQUIRES_DP in params:
-            entities.append(OkpCarpetBoosterSwitch(coordinator, *common))
+            entities.append(OkpCarpetBoosterSwitch(coordinator, *common, scope=scope))
         if not params or CARPET_DETECTION_REQUIRES_DP in params:
-            entities.append(OkpCarpetDetectionSwitch(coordinator, *common))
+            entities.append(OkpCarpetDetectionSwitch(coordinator, *common, scope=scope))
     async_add_entities(entities)
 
 
@@ -76,11 +78,12 @@ class _OkpBoolSwitch(CoordinatorEntity[OkpCoordinator], SwitchEntity):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self.api = api
         self.device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self._unique_suffix}"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self._unique_suffix}{scope}"
         self._attr_translation_key = self._unique_suffix
         self._attr_icon = self._icon
         self._attr_device_info = DeviceInfo(

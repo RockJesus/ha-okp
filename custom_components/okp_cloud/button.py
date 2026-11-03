@@ -23,7 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OkpApi, OkpApiError
-from .const import CALL_DP, DOMAIN, MOVE_DIRECTIONS, MOVE_RELEASE_VALUE
+from .const import CALL_DP, DOMAIN, MOVE_DIRECTIONS, MOVE_RELEASE_VALUE, entity_scope
 from .coordinator import OkpCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +51,7 @@ async def async_setup_entry(
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -58,10 +59,10 @@ async def async_setup_entry(
             continue
         name = dev.get("name") or "OKP 扫地机器人"
         model = dev.get("model")
-        entities.append(OkpFindRobotButton(coordinator, api, third, name, model))
+        entities.append(OkpFindRobotButton(coordinator, api, third, name, model, scope=scope))
         for key, icon, value in MOVE_BUTTONS:
             entities.append(
-                OkpMoveButton(coordinator, api, third, name, model, key, icon, value)
+                OkpMoveButton(coordinator, api, third, name, model, key, icon, value, scope=scope)
             )
     async_add_entities(entities)
 
@@ -79,11 +80,12 @@ class _OkpButtonBase(CoordinatorEntity[OkpCoordinator], ButtonEntity):
         name: str,
         model: str | None,
         key: str,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self.api = api
         self.device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_{key}{scope}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,
@@ -110,6 +112,7 @@ class OkpFindRobotButton(_OkpButtonBase):
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator, api, device_id, name, model, "find_robot")
 
@@ -135,6 +138,7 @@ class OkpMoveButton(_OkpButtonBase):
         key: str,
         icon: str,
         value: int,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator, api, device_id, name, model, key)
         self._attr_translation_key = key

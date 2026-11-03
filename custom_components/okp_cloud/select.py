@@ -21,6 +21,7 @@ from .const import (
     MODE_TO_VALUE,
     SELECT_REQUIRES_DP,
     VALUE_TO_MODE_LABEL,
+    entity_scope,
 )
 from .coordinator import OkpCoordinator
 
@@ -35,6 +36,7 @@ async def async_setup_entry(
     api: OkpApi = hass.data[DOMAIN][entry.entry_id]["api"]
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
+    scope = entity_scope(entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
@@ -51,6 +53,7 @@ async def async_setup_entry(
                 third,
                 dev.get("name") or "OKP 扫地机器人",
                 dev.get("model"),
+                scope=scope,
             )
         )
     async_add_entities(entities)
@@ -69,11 +72,12 @@ class OkpModeSelect(CoordinatorEntity[OkpCoordinator], SelectEntity, RestoreEnti
         device_id: str,
         name: str,
         model: str | None,
+        scope: str = "",
     ) -> None:
         super().__init__(coordinator)
         self.api = api
         self.device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_mode"
+        self._attr_unique_id = f"{DOMAIN}_{device_id}_mode{scope}"
         self._attr_translation_key = "clean_mode"
         self._attr_icon = "mdi:map-legend"
         self._attr_device_info = DeviceInfo(

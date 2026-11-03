@@ -1,6 +1,13 @@
 """Constants for the OKP Cloud vacuum integration."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from homeassistant.const import Platform
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
 
 DOMAIN = "okp_cloud"
 PLATFORMS = [
@@ -343,6 +350,36 @@ def persisted_token_fields(api) -> dict:
 CONF_COOLKIT_APPID = "coolkit_appid"
 CONF_SHARE_ACCOUNT = "share_account"
 CONF_SHARE_PASSWORD = "share_password"
+
+
+def entity_scope(entry: ConfigEntry | None) -> str:
+    """Suffix that makes entity ids unique *per config entry* (v1.6.2).
+
+    Why this exists: a device lives in the cloud once, but it may legitimately
+    appear in several entries - the primary account plus a shared account
+    (v1.5.5), or an old entry kept next to a new one while the user migrates
+    platforms. Entity unique_ids used to be built from the CoolKit device id
+    alone, so the second entry's entities were all rejected by Home Assistant
+    with "does not generate unique IDs" and the devices silently never showed
+    up in the second account.
+
+    The first entry keeps the historical ids (empty suffix), so existing
+    installs and every automation/entity id built on them are untouched. Any
+    further entry appends a short stable slice of its own entry_id.
+    """
+    if entry is None:
+        return ""
+    entries = (
+        entry.hass.config_entries.async_entries(DOMAIN)
+        if getattr(entry, "hass", None) is not None
+        else []
+    )
+    ordered = sorted(
+        entries, key=lambda e: (getattr(e, "created_at", 0) or 0, e.entry_id)
+    )
+    if not ordered or ordered[0].entry_id == entry.entry_id:
+        return ""
+    return f"_{entry.entry_id[-6:]}"
 
 
 def coolkit_app_id(entry_data: dict) -> str:

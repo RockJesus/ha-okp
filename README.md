@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.6.2（2026-11-03）：**修掉「多账号登录后不显示设备」**。用户按 v1.6.1 指南用副账号登录后，两个条目都 `loaded`、都扫到了同一台 K5 Ultra，但**第二个条目的实体一个都没出现**，日志刷满 `Platform okp_cloud does not generate unique IDs. ID okp_cloud_100258a68a already exists - ignoring vacuum.sao_di_ji_qi_ren`。根因：实体 `unique_id` 只由 CoolKit 设备 ID 拼成（`okp_cloud_<device_id>[_suffix]`），而同一台设备在主账号和副账号（或迁移期间的旧条目）里会出现两次 —— HA 按 unique_id 去重，第二份直接被丢弃，且**不报错到界面**，只在日志里留一行。这一版：① 新增 `const.entity_scope(entry)` —— **按条目创建时间排序，最早的那个条目保持原有 ID 不变**（已有安装的实体 ID、自动化、仪表盘全都不受影响），其余条目追加自己 `entry_id` 的 6 位后缀；② 六个平台（vacuum / sensor / select / switch / button / camera）共 12 个实体的 unique_id 全部接入；③ 同一台设备因此在两个账号下各有独立的实体组（如 `vacuum.sao_di_ji_qi_ren` 与 `vacuum.sao_di_ji_qi_ren_XXXXXX`），可同时在线、互不覆盖
+
 - v1.6.1（2026-11-03）：**「一个账号两处登录」给出可执行答案**。用户条件是只有一个手机号。查证结果：① CoolKit 注册接口「手机号和邮箱二选一」，没有绑定/叠加入口；OKP 登录接口对手机号与邮箱是两条独立路径（都返回「该帐号不存在」而非格式错误）——**同一手机号无法派出第二个账号**。② 但 OKP 官方 FAQ 明确支持**邮箱注册**且不需要第二个手机号（"create a new account using your email address"）。③ 因此可行路径是「主账号留在手机 App + 用邮箱注册副账号给集成」：OKP App 里把机器人分享给副邮箱 → HA 选择「共享账号」入口登录。这一版把这三步直接写进配置表单的说明文案里（中英双语），并新增 `docs/two-accounts-guide.md` 逐步操作文档，含权限勾选说明与旧条目处理方式
 
 - v1.6.0（2026-11-03）：**新设备免密码接入：`okp_cloud.rescan_devices` 服务**。此前的限制：多设备支持本身是有的（v1.1.9 起一个账号下每台机器人一个独立协调器，K2/K3/K5/L 系列通用，实体按设备实际携带的 dp 动态创建、没有机型白名单），但**在 App 里新买/新接入一台机器人后，集成只有在重新验证（输密码）时才会扫到它**——设备列表只在配置流里重建。这一版新增 `rescan_devices` 服务：① 优先走 CoolKit `GET /v2/device/thing` 全量清单——只需要 30 天有效的 CoolKit 令牌，完全不依赖几小时就过期的 OKP 登录令牌，也**能看到分享给本账号的设备**（itemType 2，v1.5.5 共享账号路线由此完整可用）；② 机器人识别按 dp 特征（workState / sweep / cleaningArea / startUpload 等），不会给非扫地机设备误建吸尘器实体；③ 新设备并入配置条目后自动重载集成，实体即刻出现；④ 云端已消失的设备**不会**被自动删除——移除硬件应当是主动操作，不能是网络抖动的副作用。返回值含 source / discovered / added / reloaded
