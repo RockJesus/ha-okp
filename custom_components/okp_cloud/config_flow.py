@@ -23,8 +23,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import (
     CONF_ACCOUNT,
+    CONF_COOLKIT_APPID,
     CONF_REALTIME,
     CONF_REALTIME_DEFAULT,
+    CONF_SHARE_ACCOUNT,
+    CONF_SHARE_PASSWORD,
     DOMAIN,
     persisted_token_fields,
 )
@@ -40,32 +43,50 @@ DATA_SCHEMA = vol.Schema(
 
 
 class OkpOptionsFlow(OptionsFlow):
-    """Options: turn the realtime push channel on or off.
+    """Options: realtime push, and the appid the entry speaks as.
 
-    The socket is additive - entities stay correct without it - but it is the
-    one part of this integration that talks to the cloud over a long-lived
-    connection instead of short requests. Somebody whose account does not
-    tolerate a second socket (or who simply prefers polling) can switch it off
-    here instead of removing the integration.
+    The socket is additive - entities stay correct without it - but it is also
+    the only thing that keeps the cloud session *in use*, which is why it now
+    defaults to on (see const.CONF_REALTIME_DEFAULT).
+
+    v1.5.5: ``coolkit_appid`` is the escape hatch for "I want the phone app and
+    this integration logged in at the same time". CoolKit limits a session to
+    "同一个帐号在同一个应用下", so an entry that speaks as a *different*
+    CoolKit-branded app is not torn down by an OKP app login. It only works if
+    the account really is shared with such an app; leaving it empty keeps the
+    OKP app id and therefore the previous behaviour.
     """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            appid = (user_input.get(CONF_COOLKIT_APPID) or "").strip()
+            if appid and len(appid) < 16:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._schema(user_input),
+                    errors={CONF_COOLKIT_APPID: "invalid_appid"},
+                )
             return self.async_create_entry(title="", data=user_input)
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_REALTIME,
-                        default=self.config_entry.options.get(
-                            CONF_REALTIME, CONF_REALTIME_DEFAULT
-                        ),
-                    ): cv.boolean,
-                }
-            ),
+        return self.async_show_form(step_id="init", data_schema=self._schema())
+
+    def _schema(self, current: dict[str, Any] | None = None) -> vol.Schema:
+        current = current or self.config_entry.options
+        return vol.Schema(
+            {
+                vol.Optional(
+                    CONF_REALTIME,
+                    default=current.get(CONF_REALTIME, CONF_REALTIME_DEFAULT),
+                ): cv.boolean,
+                vol.Optional(
+                    CONF_COOLKIT_APPID,
+                    default=current.get(
+                        CONF_COOLKIT_APPID,
+                        self.config_entry.data.get(CONF_COOLKIT_APPID, ""),
+                    ),
+                ): cv.string,
+            }
         )
 
 
@@ -213,6 +234,65 @@ class OkpCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_share(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Connect a *second* account that the robot was shared with (v1.5.5).
+
+        Why this exists: CoolKit's docs limit a session to "同一个帐号在同一个
+        应用下不能同时登录". The OKP app and this integration use the same
+        appid, so they queue for one session and kick each other. The officially
+        recommended way around it is the mirror image of what the docs suggest
+        for multi-account setups - share the devices to another account and
+        keep the long-lived connection on that account:
+
+            主账号（手机 App）--分享设备--> 副账号（本集成）
+
+        Two accounts, two sessions, no interference. See
+        docs/multi-client-limit.md for the full reasoning and the two routes
+        that do *not* work.
+        """
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            account = user_input[CONF_SHARE_ACCOUNT].strip()
+            password = user_input[CONF_SHARE_PASSWORD]
+            try:
+                result = await self._validate_login(account, password)
+                if result is None:
+                    errors["base"] = "no_device"
+                else:
+                    api, home_id, devices = result
+                    # Deliberately no unique id: the whole point is a second
+                    # entry next to the primary account's entry. The account
+                    # name in the title keeps them apart in the UI.
+                    title = (
+                        f"OKP（共享 {account}）"
+                        if len(devices) == 1
+                        else f"OKP（共享 {account}）{devices[0].get('name', '')}".strip()
+                    )
+                    data = self._entry_data(api, home_id, devices, account)
+                    data["shared_from_main"] = True
+                    return self.async_create_entry(title=title, data=data)
+            except OkpAuthError:
+                errors["base"] = "invalid_auth"
+            except OkpApiError as err:
+                _LOGGER.warning("OKP API error during shared-account setup: %s", err)
+                errors["base"] = "cannot_connect"
+            except aiohttp.ClientError as err:
+                _LOGGER.warning("OKP network error during shared-account setup: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="share",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SHARE_ACCOUNT, default=""): cv.string,
+                    vol.Required(CONF_SHARE_PASSWORD, default=""): cv.string,
+                }
+            ),
             errors=errors,
         )
 

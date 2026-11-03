@@ -417,6 +417,24 @@ class OkpSessionSensor(CoordinatorEntity[OkpCoordinator], SensorEntity):
             "rt_reject_count": api.coolkit_rt_reject_count,
             "auth_failures": self.coordinator.auth_failure_count,
             "last_error": self.coordinator.last_error,
+            # v1.5.5: "the session died" is not actionable on its own. This
+            # says which of the two very different deaths happened:
+            #   session_superseded       - another login into the same appid
+            #                              replaced it (open the OKP app and
+            #                              that is the whole story)
+            #   refresh_token_rejected   - the refresh token aged out
+            # None = the session has not been tested yet (still working).
+            "end_reason": api.session_end_reason,
+            "end_reason_hint": (
+                "该账号在 OKP App 里重新登录过：同一 appid 下新登录会作废旧访问令牌，"
+                "连刷新令牌一并失效。重新验证一次并把 App 退出即可恢复。"
+                if api.session_end_reason == "session_superseded"
+                else (
+                    "刷新令牌过期或被轮换：重新验证一次即可恢复。"
+                    if api.session_end_reason == "refresh_token_rejected"
+                    else None
+                )
+            ),
         }
 
 

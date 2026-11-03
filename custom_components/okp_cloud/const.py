@@ -20,8 +20,18 @@ CONF_PASSWORD = "password"
 # handshake fails with "406 Authentication Failed" until the app is gone,
 # and the app login also invalidates the OKP token chain (4001). Defaulting
 # to polling keeps every install safe; the toggle remains opt-in.
+# v1.5.5: default ON. The v1.4.6 reasoning was only half right: the app is
+# what invalidates the session, not the socket, and a session that is never
+# used goes stale by itself. Official docs (CoolKit 开发文档_v2 -> AT 和 RT
+# 说明) state that every login into the same appid refreshes the access token
+# and "让前面登录的用户 access token 失效" - and a session destroyed that way
+# takes its refresh token with it, so there is nothing to renew. A live
+# long-lived connection is what keeps our session *in use*: measured
+# 2026-11-03, socket up 4h+ with zero renewals, zero reconnects and zero
+# auth failures. Polling alone cannot hold a session the cloud considers
+# idle. See docs/multi-client-limit.md.
 CONF_REALTIME = "realtime"
-CONF_REALTIME_DEFAULT = False
+CONF_REALTIME_DEFAULT = True
 
 # okplife REST API
 API_BASE = "https://api-cn.okplife.com"
@@ -300,6 +310,33 @@ def persisted_token_fields(api) -> dict:
         "coolkit_session_origin": api.session_origin,
         "coolkit_session_started_at": api.session_started_at or None,
     }
+
+
+# v1.5.5: the OKP app id is a *brand* app id. CoolKit's official docs limit a
+# session to "同一个帐号在同一个应用下", which means accounts shared with a
+# different appid are not torn down by opening the phone app - that is the only
+# documented way to have the app and this integration online at the same time.
+# This integration therefore accepts an optional appid (and the account's own
+# CoolKit apikey, which belongs to the account and is not app-specific) so a
+# user who has a second CoolKit-branded app can point the integration at it.
+# Nothing is enabled by default: an empty value keeps the exact OKP behaviour
+# every existing install already has.
+CONF_COOLKIT_APPID = "coolkit_appid"
+CONF_SHARE_ACCOUNT = "share_account"
+CONF_SHARE_PASSWORD = "share_password"
+
+
+def coolkit_app_id(entry_data: dict) -> str:
+    """The appid to send as ``x-ck-appid`` for this entry.
+
+    Falls back to the OKP app id, so entries created before v1.5.5 - which do
+    not carry the key at all - behave exactly as before. The WS handshake and
+    every CoolKit REST call read this, because mixing appids inside one
+    session is answered with 401 and would look like a dead session.
+    """
+    value = (entry_data or {}).get(CONF_COOLKIT_APPID) or ""
+    return value.strip() or CK_APP_ID
+
 # v1.3.0: enable/disable one device-side schedule (the ``timers`` dp) without
 # touching the others. The app does the same thing: it rewrites the whole
 # ``timers`` array with a single entry's ``enabled`` flag flipped.

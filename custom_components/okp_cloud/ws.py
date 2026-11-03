@@ -41,7 +41,6 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 
 from .const import (
-    CK_APP_ID,
     CK_DOMAIN,
     DOMAIN,
     WS_DISPATCH_URL,
@@ -339,7 +338,7 @@ class OkpRealtime:
         """Ask the cloud which node this account belongs to."""
         headers = {
             "authorization": f"Bearer {self.api.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.api.coolkit_appid,
             "domain-name": CK_DOMAIN,
             "content-type": "application/json; charset=utf-8",
             "user-agent": "okhttp/4.10.0",
@@ -369,7 +368,7 @@ class OkpRealtime:
             {
                 "action": "userOnline",
                 "apikey": self.api.coolkit_apikey,
-                "appid": CK_APP_ID,
+                "appid": self.api.coolkit_appid,
                 "at": self.api.coolkit_at,
                 # Official docs: 8-char alphanumeric random value, required.
                 "nonce": "".join(random.choices(string.ascii_lowercase + string.digits, k=8)),

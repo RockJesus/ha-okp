@@ -28,6 +28,7 @@ from .const import (
     SERVICE_REFRESH_SESSION,
     SERVICE_SET_TIMER,
     SETUP_RETRY_SECONDS,
+    coolkit_app_id,
     persisted_token_fields,
 )
 from .coordinator import OkpCoordinator
@@ -185,6 +186,11 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 # ever sees a 401 on the *access token* candidate was never
                 # reached. This list is what tells the two apart.
                 "refresh_attempts": api.last_refresh_attempts,
+                # v1.5.5: why the session ended, in plain language. Without
+                # this the user only saw "stale" and had to guess whether the
+                # app had been opened - the one piece of information that
+                # decides what to do next. See api.session_end_reason.
+                "session_end_reason": api.session_end_reason,
                 "at_lifetime_hours": round(api.at_lifetime / 3600, 1),
                 "realtime": realtime.state if realtime is not None else None,
                 "error": error,
@@ -379,6 +385,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.coolkit_rt = entry.data.get("coolkit_rt")
     api.coolkit_apikey = entry.data.get("coolkit_apikey")
     api.coolkit_region = entry.data.get("coolkit_region")
+    # v1.5.5: speak as the appid this entry was configured with. Entries that
+    # predate the option have no key and fall back to the OKP app id, i.e. the
+    # previous behaviour. It must be set before any request is made: mixing
+    # appids inside one session is answered with 401 and looks like a dead
+    # session instead of a configuration mistake.
+    api.coolkit_appid = coolkit_app_id(entry.data)
     if api.coolkit_at:
         api.coolkit_at_expire = int(entry.data.get("coolkit_at_expire") or 0)
         # v1.2.12: keep the diagnostic honest across restarts - an expiry that
@@ -521,7 +533,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # three minutes. It is a pure accelerator: the poll below keeps running and
     # everything still works when the socket cannot be established.
     realtime: OkpRealtime | None = None
-    if coordinators and entry.options.get(CONF_REALTIME, CONF_REALTIME_DEFAULT):
+    wanted = entry.options.get(CONF_REALTIME, CONF_REALTIME_DEFAULT)
+    if wanted:
+        # v1.5.5: a second account reached through device sharing only sees
+        # the devices in *its own* thing list, which is exactly the case when
+        # the user has no CoolKit apikey of their own to hand us: fetch it
+        # from the cloud instead of refusing to start the socket.
+        if not api.coolkit_apikey:
+            try:
+                await api.refresh_coolkit_token()
+            except (OkpApiError, OkpAuthError) as err:
+                _LOGGER.debug("OKP could not obtain a CoolKit apikey: %s", err)
+
         def _notify_realtime_state() -> None:
             """Push the new channel state to the diagnostic sensor."""
             for coordinator in coordinators.values():

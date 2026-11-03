@@ -32,26 +32,37 @@
           "account": "Phone / Account",
           "password": "Password"
         }
+      },
+      "share": {
+        "title": "OKP shared account (the way to run the app and this integration together)",
+        "description": "CoolKit only allows one login per account *per app*: the newer login refreshes the access token and the older session is dropped. This integration speaks as the OKP app, so the two always kick each other out.\n\nThe documented workaround is to share the devices with a second account:\n1. In the OKP app (main account), share the robot with a second account;\n2. Sign in here with that second account.\n\nEach account then holds its own session, so you can keep using the app while Home Assistant keeps its connection. The two accounts must be different - a second appid on the same account does not help.",
+        "data": {
+          "share_account": "Second account (phone / email)",
+          "share_password": "Second account password"
+        }
       }
     },
     "error": {
       "cannot_connect": "Cannot connect to the OKP server. Check your network and try again.",
       "invalid_auth": "Invalid account or password",
-      "no_device": "No robot vacuum device found under this account"
+      "no_device": "No robot vacuum device found under this account",
+      "invalid_appid": "Invalid appid (a CoolKit appid is usually 32 characters)"
     },
     "abort": {
       "already_configured": "This account is already configured",
       "reauth_successful": "Re-authentication successful",
-      "reconfigure_successful": "Configuration updated"
+      "reconfigure_successful": "Configuration updated",
+      "unique_id_mismatch": "This account is already configured"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "OKP options",
-        "description": "Realtime push keeps a WebSocket open, like the app does, so state changes show up within a second while the robot cleans. Turning it off falls back to 3-minute polling; nothing else changes.",
+        "description": "Realtime push keeps a WebSocket open, like the app does, so state changes show up within a second while the robot cleans. It is also what keeps the cloud session in use - with it off the session expires more easily.",
         "data": {
-          "realtime": "Enable realtime push"
+          "realtime": "Enable realtime push",
+          "coolkit_appid": "CoolKit appid (leave empty to use the OKP app id)\nOnly needed if the same account is also used by another CoolKit-branded app (eWeLink etc.). With it set, this integration shares that app's session and OKP app logins no longer displace it."
         }
       }
     }
@@ -76,11 +87,21 @@
           "spiral": "Spiral"
         }
       },
-      "fault_code": { "name": "Fault code" },
-      "rssi": { "name": "Signal strength" },
-      "firmware_version": { "name": "Firmware version" },
-      "cleaning_area": { "name": "Cleaning area" },
-      "cleaning_times": { "name": "Cleaning times" },
+      "fault_code": {
+        "name": "Fault code"
+      },
+      "rssi": {
+        "name": "Signal strength"
+      },
+      "firmware_version": {
+        "name": "Firmware version"
+      },
+      "cleaning_area": {
+        "name": "Cleaning area"
+      },
+      "cleaning_times": {
+        "name": "Cleaning times"
+      },
       "carpet_booster": {
         "name": "Carpet booster",
         "state": {
@@ -88,7 +109,9 @@
           "off": "Off"
         }
       },
-      "battery": { "name": "Battery" },
+      "battery": {
+        "name": "Battery"
+      },
       "online": {
         "name": "Online",
         "state": {
@@ -123,15 +146,33 @@
           "off": "Off"
         }
       },
-      "last_clean_start": { "name": "Cleaning record start" },
-      "last_clean_end": { "name": "Cleaning record end" },
-      "ui_active": { "name": "UI active" },
-      "call": { "name": "Call count" },
-      "timers": { "name": "Enabled timers" },
-      "timers_total": { "name": "Total timers" },
-      "move": { "name": "Movement state" },
-      "version": { "name": "Version" },
-      "last_clean_time": { "name": "Last cleaning time" },
+      "last_clean_start": {
+        "name": "Cleaning record start"
+      },
+      "last_clean_end": {
+        "name": "Cleaning record end"
+      },
+      "ui_active": {
+        "name": "UI active"
+      },
+      "call": {
+        "name": "Call count"
+      },
+      "timers": {
+        "name": "Enabled timers"
+      },
+      "timers_total": {
+        "name": "Total timers"
+      },
+      "move": {
+        "name": "Movement state"
+      },
+      "version": {
+        "name": "Version"
+      },
+      "last_clean_time": {
+        "name": "Last cleaning time"
+      },
       "ota_update": {
         "name": "Firmware update",
         "state": {
@@ -140,22 +181,42 @@
       }
     },
     "select": {
-      "clean_mode": { "name": "Clean mode" }
+      "clean_mode": {
+        "name": "Clean mode"
+      }
     },
     "switch": {
-      "carpet_booster": { "name": "Carpet booster" },
-      "carpet_detection": { "name": "Carpet detection" }
+      "carpet_booster": {
+        "name": "Carpet booster"
+      },
+      "carpet_detection": {
+        "name": "Carpet detection"
+      }
     },
     "button": {
-      "find_robot": { "name": "Find robot" },
-      "move_forward": { "name": "Forward" },
-      "move_backward": { "name": "Backward" },
-      "move_left": { "name": "Turn left" },
-      "move_right": { "name": "Turn right" },
-      "move_stop": { "name": "Release (stop moving)" }
+      "find_robot": {
+        "name": "Find robot"
+      },
+      "move_forward": {
+        "name": "Forward"
+      },
+      "move_backward": {
+        "name": "Backward"
+      },
+      "move_left": {
+        "name": "Turn left"
+      },
+      "move_right": {
+        "name": "Turn right"
+      },
+      "move_stop": {
+        "name": "Release (stop moving)"
+      }
     },
     "camera": {
-      "map": { "name": "Cleaning map" }
+      "map": {
+        "name": "Cleaning map"
+      }
     }
   },
   "services": {

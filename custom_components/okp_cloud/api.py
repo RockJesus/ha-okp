@@ -95,6 +95,10 @@ class OkpApi:
         self.coolkit_apikey: str | None = None
         self.coolkit_at_expire: int = 0
         self.coolkit_region: str | None = None
+        # v1.5.5: which appid this entry speaks as. Defaults to the OKP
+        # app id, so behaviour is unchanged unless the user configured a
+        # second CoolKit-branded app (see const.coolkit_app_id).
+        self.coolkit_appid: str = CK_APP_ID
         self.coolkit_refreshed_at: float = 0.0
         # Cooldown for refresh *attempts*: after a failed refresh (network or
         # auth), do not retry the OKP refresh endpoint more often than this
@@ -372,7 +376,7 @@ class OkpApi:
         self.last_refresh_attempts = []
         for auth_value, label in candidates:
             headers = {
-                "x-ck-appid": CK_APP_ID,
+                "x-ck-appid": self.coolkit_appid,
                 "domain-name": CK_DOMAIN,
                 "content-type": "application/json",
             }
@@ -479,7 +483,7 @@ class OkpApi:
             return False
         headers = {
             "authorization": f"Bearer {self.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.coolkit_appid,
             "domain-name": CK_DOMAIN,
             "content-type": "application/json",
         }
@@ -587,11 +591,45 @@ class OkpApi:
             return "stale" if self.coolkit_rt else "expired"
         return "rt" if self.coolkit_rt else "okplife"
 
+    @property
+    def session_end_reason(self) -> str | None:
+        """Plain-language diagnosis of *why* the session ended (v1.5.5).
+
+        The distinction matters because the two cases need opposite advice,
+        and for two years this integration could not tell them apart:
+
+        ``session_superseded``
+            Every candidate the renewal tried was answered with 401/400 - the
+            cloud no longer knows this access token *or* the refresh token in
+            the body. Per the official docs a login into the same appid
+            refreshes the access token and revokes the previous one, and a
+            revoked session takes its refresh token with it. So this is
+            overwhelmingly "the account was used in the OKP app again", and
+            the only fix is a re-authentication. Retrying is pointless; the
+            user has to choose which side keeps the account.
+
+        ``refresh_token_rejected``
+            The cloud rejected the refresh token itself (402/403). Nothing to
+            do with the app - the rt simply aged out or was rotated away.
+
+        None while the session is healthy or has not been tested yet.
+        """
+        attempts = [a for a in self.last_refresh_attempts if a]
+        if attempts:
+            verdicts = {a.rsplit("->", 1)[-1].strip()[:3] for a in attempts}
+            if verdicts and verdicts <= {"400", "401"}:
+                return "session_superseded"
+            if any(v.startswith(("402", "403")) for v in verdicts):
+                return "refresh_token_rejected"
+        if self.coolkit_rt_rejected_at and not self.coolkit_rt:
+            return "refresh_token_rejected"
+        return None
+
     async def get_thing_state(self, device_id: str) -> dict:
         await self.ensure_coolkit_token()
         headers = {
             "authorization": f"Bearer {self.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.coolkit_appid,
             "domain-name": CK_DOMAIN,
             "content-type": "application/json",
         }
@@ -627,7 +665,7 @@ class OkpApi:
         await self.ensure_coolkit_token()
         headers = {
             "authorization": f"Bearer {self.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.coolkit_appid,
             "domain-name": CK_DOMAIN,
             "content-type": "application/json",
         }
@@ -666,7 +704,7 @@ class OkpApi:
         await self.ensure_coolkit_token()
         headers = {
             "authorization": f"Bearer {self.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.coolkit_appid,
             "domain-name": CK_DOMAIN,
         }
         try:
@@ -712,7 +750,7 @@ class OkpApi:
         await self.ensure_coolkit_token()
         headers = {
             "authorization": f"Bearer {self.coolkit_at}",
-            "x-ck-appid": CK_APP_ID,
+            "x-ck-appid": self.coolkit_appid,
             "domain-name": CK_DOMAIN,
             "content-type": "application/json",
         }

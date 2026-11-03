@@ -32,26 +32,37 @@
           "account": "手机号/账号",
           "password": "密码"
         }
+      },
+      "share": {
+        "title": "OKP 共享账号登录（推荐用于「App 与集成同时在线」）",
+        "description": "CoolKit 官方限制：同一个账号在同一个应用下不能同时登录，后登录者会让前一个会话失效。本集成与 OKP App 用的是同一个 appid，所以二者必然互踢。\n\n官方给出的解法是把设备分享给另一个账号：\n1. 在 OKP App（主账号）里把扫地机器人分享给第二个账号；\n2. 在这里用第二个账号登录。\n\n这样两个账号各自持有一个会话，手机 App 随便用，集成不再被顶。两个账号绝不能是同一个账号 —— 同一账号下换 appid 也没用。",
+        "data": {
+          "share_account": "副账号（手机号/邮箱）",
+          "share_password": "副账号密码"
+        }
       }
     },
     "error": {
       "cannot_connect": "无法连接 OKP 服务器，请检查网络后重试",
       "invalid_auth": "账号或密码错误",
-      "no_device": "账号下没有找到扫地机器人设备"
+      "no_device": "账号下没有找到扫地机器人设备",
+      "invalid_appid": "appid 格式不正确（CoolKit appid 通常为 32 位字符）"
     },
     "abort": {
       "already_configured": "该账号已配置",
       "reauth_successful": "重新登录成功",
-      "reconfigure_successful": "配置已更新"
+      "reconfigure_successful": "配置已更新",
+      "unique_id_mismatch": "该账号已配置"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "OKP 集成选项",
-        "description": "实时推送：与 App 一样保持一条 WebSocket 长连接，清扫过程中状态在 1 秒内更新。关闭后只用 3 分钟轮询，功能不受影响。",
+        "description": "实时推送：与 App 一样保持一条 WebSocket 长连接，清扫过程中状态在 1 秒内更新，同时也是让云端会话「保持在用」的唯一手段（关闭后会话更容易自行过期）。",
         "data": {
-          "realtime": "启用实时推送"
+          "realtime": "启用实时推送",
+          "coolkit_appid": "CoolKit appid（留空即使用 OKP App 的 appid）\n仅当你的账号同时被另一个 CoolKit 品牌应用（易微联等）使用时才需要填写，填了它，本集成与该品牌应用共享会话，OKP App 登录不再顶掉集成。"
         }
       }
     }
@@ -76,11 +87,21 @@
           "spiral": "螺旋"
         }
       },
-      "fault_code": { "name": "故障码" },
-      "rssi": { "name": "信号强度" },
-      "firmware_version": { "name": "固件版本" },
-      "cleaning_area": { "name": "清扫面积" },
-      "cleaning_times": { "name": "清扫次数" },
+      "fault_code": {
+        "name": "故障码"
+      },
+      "rssi": {
+        "name": "信号强度"
+      },
+      "firmware_version": {
+        "name": "固件版本"
+      },
+      "cleaning_area": {
+        "name": "清扫面积"
+      },
+      "cleaning_times": {
+        "name": "清扫次数"
+      },
       "carpet_booster": {
         "name": "地毯增压",
         "state": {
@@ -88,7 +109,9 @@
           "off": "关闭"
         }
       },
-      "battery": { "name": "电量" },
+      "battery": {
+        "name": "电量"
+      },
       "online": {
         "name": "在线状态",
         "state": {
@@ -123,15 +146,33 @@
           "off": "关闭"
         }
       },
-      "last_clean_start": { "name": "最近清扫记录开始" },
-      "last_clean_end": { "name": "最近清扫记录结束" },
-      "ui_active": { "name": "界面活跃值" },
-      "call": { "name": "呼叫计数" },
-      "timers": { "name": "启用的定时任务" },
-      "timers_total": { "name": "定时任务总数" },
-      "move": { "name": "移动状态" },
-      "version": { "name": "版本" },
-      "last_clean_time": { "name": "最近清扫时间" },
+      "last_clean_start": {
+        "name": "最近清扫记录开始"
+      },
+      "last_clean_end": {
+        "name": "最近清扫记录结束"
+      },
+      "ui_active": {
+        "name": "界面活跃值"
+      },
+      "call": {
+        "name": "呼叫计数"
+      },
+      "timers": {
+        "name": "启用的定时任务"
+      },
+      "timers_total": {
+        "name": "定时任务总数"
+      },
+      "move": {
+        "name": "移动状态"
+      },
+      "version": {
+        "name": "版本"
+      },
+      "last_clean_time": {
+        "name": "最近清扫时间"
+      },
       "ota_update": {
         "name": "固件更新",
         "state": {
@@ -140,22 +181,42 @@
       }
     },
     "select": {
-      "clean_mode": { "name": "清扫模式" }
+      "clean_mode": {
+        "name": "清扫模式"
+      }
     },
     "switch": {
-      "carpet_booster": { "name": "地毯增压" },
-      "carpet_detection": { "name": "地毯检测" }
+      "carpet_booster": {
+        "name": "地毯增压"
+      },
+      "carpet_detection": {
+        "name": "地毯检测"
+      }
     },
     "button": {
-      "find_robot": { "name": "查找机器人" },
-      "move_forward": { "name": "前进" },
-      "move_backward": { "name": "后退" },
-      "move_left": { "name": "左转" },
-      "move_right": { "name": "右转" },
-      "move_stop": { "name": "松开（停止移动）" }
+      "find_robot": {
+        "name": "查找机器人"
+      },
+      "move_forward": {
+        "name": "前进"
+      },
+      "move_backward": {
+        "name": "后退"
+      },
+      "move_left": {
+        "name": "左转"
+      },
+      "move_right": {
+        "name": "右转"
+      },
+      "move_stop": {
+        "name": "松开（停止移动）"
+      }
     },
     "camera": {
-      "map": { "name": "清扫地图" }
+      "map": {
+        "name": "清扫地图"
+      }
     }
   },
   "services": {
