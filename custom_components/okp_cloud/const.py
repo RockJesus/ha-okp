@@ -8,6 +8,7 @@ from homeassistant.const import Platform
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 DOMAIN = "okp_cloud"
 PLATFORMS = [
@@ -352,7 +353,7 @@ CONF_SHARE_ACCOUNT = "share_account"
 CONF_SHARE_PASSWORD = "share_password"
 
 
-def entity_scope(entry: ConfigEntry | None) -> str:
+def entity_scope(hass: HomeAssistant | None, entry: ConfigEntry | None) -> str:
     """Suffix that makes entity ids unique *per config entry* (v1.6.2).
 
     Why this exists: a device lives in the cloud once, but it may legitimately
@@ -366,17 +367,31 @@ def entity_scope(entry: ConfigEntry | None) -> str:
     The first entry keeps the historical ids (empty suffix), so existing
     installs and every automation/entity id built on them are untouched. Any
     further entry appends a short stable slice of its own entry_id.
+
+    v1.6.5: ``hass`` is passed in explicitly. The v1.6.2 signature read it from
+    ``entry.hass`` - an attribute ConfigEntry does not have (Home Assistant
+    only ever passes hass as a *method argument*), so the lookup silently
+    returned None and this function answered "" for *every* entry. The fix was
+    dead on arrival: both accounts kept producing the same unique_ids, HA kept
+    dropping the second set, and the shared account still showed no devices.
     """
-    if entry is None:
+    if hass is None or entry is None:
         return ""
-    entries = (
-        entry.hass.config_entries.async_entries(DOMAIN)
-        if getattr(entry, "hass", None) is not None
-        else []
-    )
-    ordered = sorted(
-        entries, key=lambda e: (getattr(e, "created_at", 0) or 0, e.entry_id)
-    )
+    entries = [
+        e for e in hass.config_entries.async_entries(DOMAIN) if e.domain == DOMAIN
+    ]
+    # created_at is a datetime on current HA, but it was absent (and is still
+    # absent on hand-built entries) before 2022.7 - normalise to a float so a
+    # mixed list never raises "TypeError: '<' not supported".
+    def _created(e: ConfigEntry) -> float:
+        value = getattr(e, "created_at", None)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if value is not None and hasattr(value, "timestamp"):
+            return float(value.timestamp())
+        return 0.0
+
+    ordered = sorted(entries, key=lambda e: (_created(e), e.entry_id))
     if not ordered or ordered[0].entry_id == entry.entry_id:
         return ""
     return f"_{entry.entry_id[-6:]}"

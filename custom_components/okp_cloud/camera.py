@@ -22,7 +22,7 @@ async def async_setup_entry(
 ) -> None:
     coordinators: dict[str, OkpCoordinator] = hass.data[DOMAIN][entry.entry_id]["coordinators"]
     entities = []
-    scope = entity_scope(entry)
+    scope = entity_scope(hass, entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)

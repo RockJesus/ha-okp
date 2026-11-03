@@ -14,6 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from .api import OkpApi, OkpApiError, OkpAuthError
 from .const import (
     AT_LIFETIME_FALLBACK_SECONDS,
+    CONF_ACCOUNT,
     CONF_PASSWORD,
     CONF_REALTIME,
     CONF_REALTIME_DEFAULT,
@@ -141,7 +142,7 @@ async def _async_refresh_session(call: ServiceCall) -> dict[str, Any]:
                 "is_shared_entry": bool(
                     entry is not None and entry.data.get("shared_from_main")
                 ),
-                "entity_scope": entity_scope(entry),
+                "entity_scope": entity_scope(hass, entry),
                 "devices": [
                     {
                         "name": d.get("name"),

@@ -154,6 +154,8 @@ data:
 
 ## 📝 更新日志
 
+- v1.6.5（2026-11-03）：**修掉 v1.6.3 引入的崩溃**。v1.6.3 给 `refresh_session` 加诊断字段时用了 `CONF_ACCOUNT` 却没有从 `const` 导入，导致该服务每次调用都抛 `name 'CONF_ACCOUNT' is not defined`。更糟的是这掩盖了真相：因服务报错，一直读不到 `coordinator_count`，误判成「HA 上跑的还是没有这些字段的旧版本」。同时查清了「版本号说谎」的问题——`update` 实体长期显示 `installed = v1.6.2`，实际运行的却是 v1.5.5/1.6.0 的代码，原因是 HACS 走 `ghrp2.hacs.vip` 镜像下载，单文件超时 60 秒即告失败（日志 `Tries left 14`），安装从未真正落地。现已在 HA 主机上完成 v1.6.4 的真实安装并重启验证
+
 - v1.6.4（2026-11-03）：**修掉副账号「登录成功但 0 个设备」的真正根因**。v1.6.2 解决的是实体 ID 撞车（第二份被丢弃），v1.6.3 加的诊断证明副账号条目**连协调器都是 0 个**——问题不在实体层，在设备发现层。根因：配置流用 `GET /v2/home/list` + `GET /v9/home/device-list` 发现设备，而这条 **OKP 云接口是按 home 且只返回「本账号自有」设备**；别人分享过来的机器（CoolKit 里 `itemType = 2`）根本不在这个列表里，于是 `_validate_login` 拿到空列表、条目却照样创建，表现为「登录成功、什么都没出现」。这一版：① 发现流程在 OKP 列表之外**追加 CoolKit `GET /v2/device/thing`**（账号维度、含 `itemType 2` 分享设备），按 dp 特征（`ROBOT_DP_HINTS`）过滤出机器人，与 OKP 结果按 `third_dev_id` 去重合并；② 副账号即便没有任何 home 也能成立（`home_id` 允许为空）；③ `no_device` 报错改成可执行的三步自检（主账号是否已分享、分享是否生效、副账号 App 里能否看到）；④ 顺带修掉 v1.6.3 发布物里 `manifest.json` 被写成 0 字节导致 HACS 无法安装的问题
 
 - v1.6.3（2026-11-03）：**增加「条目自己到底拿到了什么」的诊断**。v1.6.2 修好 unique_id 撞车后现场确认：两个条目都 `session_state = rt`、`realtime = connected`、`error = None`，但 `entity_registry` 里 okp_cloud 的 34 个实体**全部挂在主账号条目下，副账号条目 0 个**。也就是说 `loaded` 并不等于「有设备」——一个条目可能加载成功却没有任何协调器，而界面和旧版诊断都看不出来。这一版给 `refresh_session` 的每条返回加上 `title` / `account` / `is_shared_entry` / `entity_scope` / `coordinator_count` / `devices[]`（含 `has_coordinator`），一眼能定位是「没扫到设备」还是「扫到了但没建协调器」。同时修正一处早先文档的错误描述：`vacuum.xiao_du_*` 实体属于**小度插件**，与 OKP 无关

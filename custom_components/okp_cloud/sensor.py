@@ -156,7 +156,7 @@ async def async_setup_entry(
     entities = []
     # v1.6.2: per-entry suffix so a device held by two entries (primary +
     # shared account) does not collide on entity unique_id.
-    scope = entity_scope(entry)
+    scope = entity_scope(hass, entry)
     for dev in entry.data.get("devices", []):
         third = dev.get("third_dev_id")
         coordinator = coordinators.get(third)
