@@ -35,7 +35,7 @@
       },
       "share": {
         "title": "OKP shared account (the way to run the app and this integration together)",
-        "description": "CoolKit only allows one login per account *per app*: the newer login refreshes the access token and the older session is dropped. This integration speaks as the OKP app, so the two always kick each other out.\n\nThe documented workaround is to share the devices with a second account:\n1. In the OKP app (main account), share the robot with a second account;\n2. Sign in here with that second account.\n\nEach account then holds its own session, so you can keep using the app while Home Assistant keeps its connection. The two accounts must be different - a second appid on the same account does not help.",
+        "description": "CoolKit only allows one login per account *per app*: the newer login refreshes the access token and drops the older session. This integration speaks as the OKP app, so the two always kick each other out.\n\nThe fix is to share the devices with a second account (the approach the vendor documents):\n1. Sign out in the OKP app, pick \"register with email\" and create a new account with any email address (no second SIM needed - OKP's own FAQ supports email registration);\n2. Sign back in with the main account, open the robot's settings and share it with the new email account;\n3. Sign in here with that new email account.\n\nEach account then holds its own session: the app keeps working normally on the main account while Home Assistant stays online on the second one. The two accounts must be different - a second appid on the same account does not help.",
         "data": {
           "share_account": "Second account (phone / email)",
           "share_password": "Second account password"
