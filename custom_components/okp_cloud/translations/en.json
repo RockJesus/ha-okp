@@ -231,6 +231,10 @@
     "refresh_session": {
       "name": "Refresh cloud session",
       "description": "Exchange the stored refresh token (rt) for a new access token right now and return the outcome. Useful to debug a dropped session or to check that it no longer depends on the phone app."
+    },
+    "rescan_devices": {
+      "name": "Rescan devices",
+      "description": "Re-reads the account's device list and picks up robots added (or shared) in the app, without ever asking for the password. New devices are merged into the entry and the integration reloads itself; 'added' in the response lists what was found."
     }
   }
 }

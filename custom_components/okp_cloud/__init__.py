@@ -26,7 +26,9 @@ from .const import (
     PLATFORMS,
     SERVICE_MOVE,
     SERVICE_REFRESH_SESSION,
+    SERVICE_RESCAN_DEVICES,
     SERVICE_SET_TIMER,
+    ROBOT_DP_HINTS,
     SETUP_RETRY_SECONDS,
     coolkit_app_id,
     persisted_token_fields,
@@ -307,6 +309,122 @@ async def _async_move(call: ServiceCall) -> dict[str, Any]:
     return {"direction": direction or None, "value": value, **result}
 
 
+def _is_robot_params(params: Any) -> bool:
+    """Heuristic: does this CoolKit thing look like one of our robots?
+
+    The CoolKit thing list contains *every* device type the account (or the
+    brands its appid is licensed for) has. Robots are recognised by the dp
+    keys the v3.4.0 app capture showed on the K5 Ultra - shared across the
+    OKP range, since those dps are what the app's robot pages bind to. A
+    device matching none of them is left alone: guessing would create a
+    vacuum entity for something that cannot sweep.
+    """
+    if not isinstance(params, dict):
+        return False
+    keys = set(params)
+    return any(hint in keys for hint in ROBOT_DP_HINTS)
+
+
+async def _async_rescan_devices(call: ServiceCall) -> dict[str, Any]:
+    """Re-read the account's device list and pick up new robots (v1.6.0).
+
+    Two sources, in order of preference:
+
+    1. CoolKit ``GET /v2/device/thing`` - needs only the long-lived CoolKit
+       access token, so this works months after the last password entry and
+       is the path that makes "buy a new robot, run the service, done" real.
+       It also sees devices shared *to* this account (itemType 2), which is
+       what the v1.5.5 shared-account setup relies on.
+    2. OKP home/device list - only when the CoolKit route cannot answer.
+       Needs the OKP login token, which may be long expired.
+
+    Newly found robots are merged into the entry's device list and the entry
+    reloads itself, so entities appear without any password prompt. Devices
+    that vanished from the cloud are kept: removing hardware should be a
+    deliberate act, not a side effect of a network hiccup.
+    """
+    hass: HomeAssistant = call.hass
+    results: list[dict[str, Any]] = []
+    for entry_id, store in list((hass.data.get(DOMAIN) or {}).items()):
+        if not isinstance(store, dict) or "api" not in store:
+            continue
+        api: OkpApi = store["api"]
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None:
+            continue
+
+        found: dict[str, dict[str, Any]] = {}
+        source = None
+        try:
+            things = await api.list_coolkit_things()
+            source = "coolkit"
+            for dev in things:
+                if _is_robot_params(dev.get("params")):
+                    found[dev["third_dev_id"]] = dev
+        except (OkpApiError, OkpAuthError) as err:
+            _LOGGER.debug("OKP rescan via CoolKit failed (%s); trying OKP", err)
+            try:
+                homes = await api.get_homes()
+                for home in homes:
+                    home_id = str(home.get("home_id") or home.get("id"))
+                    for dev in await api.get_devices(home_id):
+                        third = dev.get("third_dev_id")
+                        if third:
+                            found[str(third)] = {
+                                "id": str(dev.get("id")),
+                                "name": dev.get("name"),
+                                "third_dev_id": str(third),
+                                "product_id": dev.get("third_product_id_tuya"),
+                                "model": dev.get("device_model_name"),
+                            }
+                source = "okplife"
+            except (OkpApiError, OkpAuthError) as err2:
+                raise HomeAssistantError(
+                    f"OKP 重新扫描失败：CoolKit ({err}) 与 OKP 云 ({err2}) 均不可用"
+                ) from err2
+
+        existing = {
+            str(d.get("third_dev_id")): d
+            for d in _device_list(entry)
+            if d.get("third_dev_id")
+        }
+        added = sorted(set(found) - set(existing))
+        # Deliberate no-delete policy (see docstring): only additions merge.
+        merged = list(existing.values())
+        for dev_id in added:
+            dev = found[dev_id]
+            merged.append(
+                {
+                    "id": dev["id"],
+                    "name": dev.get("name"),
+                    "third_dev_id": dev["third_dev_id"],
+                    "product_id": dev.get("product_id"),
+                    "model": dev.get("model"),
+                }
+            )
+        merged.sort(key=lambda d: str(d.get("name") or d.get("third_dev_id")))
+
+        if added:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, DEVICES_KEY: merged}
+            )
+            await hass.config_entries.async_reload(entry_id)
+
+        results.append(
+            {
+                "entry_id": entry_id,
+                "source": source,
+                "known": len(existing),
+                "discovered": len(found),
+                "added": [
+                    {"name": found[i].get("name"), "device_id": i} for i in added
+                ],
+                "reloaded": bool(added),
+            }
+        )
+    return {"entries": results}
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register the integration services once."""
     if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_SESSION):
@@ -329,6 +447,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_MOVE,
             _async_move,
             supports_response=SupportsResponse.OPTIONAL,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_RESCAN_DEVICES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESCAN_DEVICES,
+            _async_rescan_devices,
+            supports_response=SupportsResponse.ONLY,
         )
 
 

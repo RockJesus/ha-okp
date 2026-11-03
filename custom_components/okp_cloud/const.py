@@ -75,6 +75,25 @@ SERVICE_REFRESH_SESSION = "refresh_session"
 
 SERVICE_SET_TIMER = "set_timer"
 
+# v1.6.0: re-scan the account for devices without a password. Adding a robot
+# in the app used to require a full reconfigure (password); this service
+# re-reads the device list with the tokens already held and reloads the entry.
+SERVICE_RESCAN_DEVICES = "rescan_devices"
+
+# dp keys that identify a robot vacuum in a CoolKit thing-list entry. Used by
+# the rescan fallback path, where the account's full CoolKit thing list is the
+# source (it needs no OKP login token) but contains every device brand/type,
+# not just robots.
+ROBOT_DP_HINTS = (
+    "workState",
+    "sweep",
+    "cleaningArea",
+    "startUpload",
+    "endUpload",
+    "carpetBooster",
+    "uiActive",
+)
+
 # v1.4.2: manual remote (the app's joystick). The capture shows the app
 # writing the ``move`` dp while a direction button is *held* and writing 4 when
 # it is released -- press/release, not a single "drive N centimetres" command.

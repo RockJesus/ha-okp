@@ -661,6 +661,73 @@ class OkpApi:
         item = things[0].get("itemData") or {}
         return item
 
+    async def list_coolkit_things(self) -> list[dict]:
+        """Every device under the account, own and shared (v1.6.0).
+
+        GET /v2/device/thing with the CoolKit access token - the same token
+        the poll and the socket already use, so it works for ~30 days after
+        the last app login and does not depend on the OKP login token at all.
+        This is what lets ``rescan_devices`` find a newly added robot without
+        a password, which the OKP device-list route cannot do (that route
+        needs the OKP access token, which lives for hours).
+
+        Entries are normalised into the config-entry device shape
+        (id / name / third_dev_id / model); the caller filters robot from
+        non-robot by dp hints. itemType 1 = own device, 2 = shared to this
+        account - both are kept, which is what makes the shared-account
+        route from v1.5.5 fully functional.
+        """
+        await self.ensure_coolkit_token()
+        headers = {
+            "authorization": f"Bearer {self.coolkit_at}",
+            "x-ck-appid": self.coolkit_appid,
+            "domain-name": CK_DOMAIN,
+            "content-type": "application/json",
+        }
+        try:
+            async with self._session.get(
+                f"{CK_BASE}{CK_ENDPOINT_THING}",
+                params={"lang": "cn", "version": "8"},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise OkpApiError(f"coolkit network error: {err}") from err
+        if body.get("error"):
+            error = body.get("error")
+            msg = body.get("msg") or body.get("message") or "unknown"
+            if error in (401, 402):
+                self._mark_at_rejected()
+                raise OkpAuthError(f"coolkit {error}: {msg}")
+            raise OkpApiError(f"coolkit error {error}: {msg}")
+        things = (body.get("data") or {}).get("thingList") or []
+        devices: list[dict] = []
+        for thing in things:
+            if not isinstance(thing, dict):
+                continue
+            item = thing.get("itemData") or {}
+            # v1 shape puts the fields directly on the list entry.
+            if not item:
+                item = {k: v for k, v in thing.items() if k != "itemType"}
+            device_id = str(
+                item.get("deviceid") or item.get("id") or thing.get("id") or ""
+            )
+            if not device_id:
+                continue
+            devices.append(
+                {
+                    "id": device_id,
+                    "name": item.get("name"),
+                    "third_dev_id": device_id,
+                    "product_id": item.get("productId") or item.get("productModel"),
+                    "model": item.get("productModel") or item.get("model"),
+                    "item_type": thing.get("itemType") or item.get("itemType"),
+                    "params": item.get("params") or {},
+                }
+            )
+        return devices
+
     async def set_thing_params(self, device_id: str, params: dict) -> None:
         await self.ensure_coolkit_token()
         headers = {
