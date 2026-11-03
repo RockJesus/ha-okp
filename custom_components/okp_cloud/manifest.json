@@ -5,13 +5,10 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/RockJesus/ha-okp",
-  "issue_tracker": "https://github.com/RockJesus/ha-okp/issues",
-  "requirements": [],
-  "ssdp": [],
-  "zeroconf": [],
-  "homeassistant": "2024.6.0",
-  "version": "1.6.5",
-  "iot_class": "cloud_push",
   "integration_type": "hub",
-  "quality_scale": "bronze"
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/RockJesus/ha-okp/issues",
+  "quality_scale": "bronze",
+  "requirements": [],
+  "version": "1.6.6"
 }
