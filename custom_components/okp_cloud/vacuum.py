@@ -171,8 +171,10 @@ class OkpVacuum(CoordinatorEntity[OkpCoordinator], StateVacuumEntity):
         # longer publishes battery_level to state attributes on its own.
         # Expose it explicitly so frontend vacuum cards can still show it.
         attrs["battery_level"] = self.battery_level
-        if self.coordinator.data:
-            attrs["device_key"] = self.coordinator.data.get("devicekey")
+        # v1.6.7: never expose the CoolKit ``devicekey`` in state attributes.
+        # It is the device's own secret (used by eWeLink to encrypt LAN
+        # control); attributes are visible to every HA user, are stored in
+        # recorder history and are shipped to every open frontend.
         if getattr(self.coordinator, "last_error", None):
             attrs["last_error"] = self.coordinator.last_error
         # v1.4.3: what the last manual-remote command sent (``move`` is a

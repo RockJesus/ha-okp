@@ -154,6 +154,7 @@ data:
 
 ## 📝 更新日志
 
+- v1.6.7（2026-11-04）：**按 HACS 审核意见修复（frenck review）**。① 移除 `vacuum` 实体状态属性里的 `device_key`——那是 CoolKit 设备自身的密钥（eWeLink 用它加密局域网控制），属性对所有 HA 用户可见、会写入 recorder 历史并下发到每个前端，集成内部逻辑也不需要它对外暴露；② 地图渲染 `parse_map_paths` / `render_map_png` 改到 `hass.async_add_executor_job` 执行——原实现逐格遍历并对整块 RGB 缓冲做 `zlib.compress`，在事件循环里跑会卡住其他集成，现全部移出事件循环。功能、实体数量与命名均无变化
 - v1.6.6（2026-11-03）：**仓库合规化，为加入 HACS 默认仓库做准备**。① `manifest.json` 移除 `homeassistant` 键（该键只属于 `hacs.json`，出现在 manifest 会被 hassfest 判为非法选项），并去掉空的 `ssdp` / `zeroconf`（未实现对应发现流程却声明发现机制）；② 键序改为 `domain`、`name` 在前、其余按字母序，与 hassfest 校验一致；③ 仓库新增官方 **HACS Action** 与 **Hassfest** 两个 CI 工作流，每次 push/PR 自动校验集成规范；④ 补仓库 topics（`home-assistant` / `home-assistant-integration` / `hacs`），HACS 展示与检索需要。集成功能与实体无任何变化，本条仅为发布规范整改
 - v1.6.5（2026-11-03）：**修掉 v1.6.3 引入的崩溃**。v1.6.3 给 `refresh_session` 加诊断字段时用了 `CONF_ACCOUNT` 却没有从 `const` 导入，导致该服务每次调用都抛 `name 'CONF_ACCOUNT' is not defined`。更糟的是这掩盖了真相：因服务报错，一直读不到 `coordinator_count`，误判成「HA 上跑的还是没有这些字段的旧版本」。同时查清了「版本号说谎」的问题——`update` 实体长期显示 `installed = v1.6.2`，实际运行的却是 v1.5.5/1.6.0 的代码，原因是 HACS 走 `ghrp2.hacs.vip` 镜像下载，单文件超时 60 秒即告失败（日志 `Tries left 14`），安装从未真正落地。现已在 HA 主机上完成 v1.6.4 的真实安装并重启验证
 

@@ -556,11 +556,16 @@ class OkpCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.map_error = last_error or "no map data for the latest run"
                 return
 
-            points = parse_map_paths(paths)
+            # v1.6.7: parse + render are pure CPU work (cell loop + zlib
+            # over the whole RGB buffer). Run both in the executor so a map
+            # render never blocks the event loop / other integrations.
+            points = await self.hass.async_add_executor_job(parse_map_paths, paths)
             if not points:
                 self.map_error = "map data empty"
                 return
-            self.map_image = render_map_png(points)
+            self.map_image = await self.hass.async_add_executor_job(
+                render_map_png, points
+            )
             self.map_cleaning_id = used
             self.map_updated_at = time.time()
             self.map_error = None
