@@ -5,7 +5,7 @@
 # OKP 扫地机器人（OKP Cloud）
 
 [![GitHub Release](https://img.shields.io/github/v/release/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/releases/latest)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6+-%23049cdb?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![Last Commit](https://img.shields.io/github/last-commit/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/commits/main)
 
@@ -27,9 +27,15 @@
 
 ### 方式一：HACS（推荐）
 
-1. HACS → 「自定义仓库」→ 添加 `https://github.com/RockJesus/ha-okp`（类别：**集成**）
-2. 搜索并安装 **OKP Cloud 扫地机器人**
+本仓库已收录进 **HACS 默认仓库**（[hacs/default#13225](https://github.com/hacs/default/pull/13225)，2026-11-04 合并），**不需要添加自定义仓库**：
+
+1. HACS → 搜索 **OKP 扫地机器人**（或 OKP Cloud）
+2. 下载并安装
 3. 重启 Home Assistant
+
+> 若搜索不到，先确认 HACS 本体已更新（HACS → 「更新」里升级 HACS 后重启）；旧版 HACS 的默认仓库列表是缓存的。
+>
+> 早期版本曾要求「自定义仓库」方式添加。**已经添加过的请照旧使用**，不必删除——同一个仓库同时以两种身份登记时，HACS 可能列出两条，删掉自定义的那条即可，实体与配置条目不受影响。
 
 ### 方式二：手动安装
 
@@ -154,6 +160,7 @@ data:
 
 ## 📝 更新日志
 
+- v1.6.9（2026-11-04）：**已进入 HACS 默认仓库，收拾收尾项**（[hacs/default#13225](https://github.com/hacs/default/pull/13225) 已合并，默认分支列表第 3688 行、按字母序位置正确）。① README 安装说明从「添加自定义仓库」改为「直接在 HACS 里搜索」，并写明老用户已添加的自定义仓库不必删除；HACS 徽章由 `Custom` 改为 `Default`。② 修掉一个此前没人看见的坑：HACS 在 `render_readme` 下优先渲染 **`custom_components/okp_cloud/README.md`**，而这份副本从 v1.6.3 起就停止更新了——用户在 HACS 里看到的更新日志停在 v1.6.2。现新增 `tools/sync_readme.py` 作为唯一同步入口，CI 增加一步 `--check`，两份不同步直接构建失败，不会再悄悄漂移。③ `.gitignore` 补上 `.pytest_cache` / `.ruff_cache` / `.venv`（`tests/` 落地后这些目录才出现）。集成代码、`manifest.json`、实体数量与本版之前完全一致
 - v1.6.8（2026-11-04）：**补上单元测试与 CI**。此前仓库零测试，`entity_scope` 那次「修复从未生效」的事故（读了一个不存在的 `entry.hass` 属性，对所有条目静默返回空后缀）一条 5 行的测试就能拦住。本版新增 `tests/`：① `entity_scope` 的回归测试——**明确断言 entry 没有 `hass` 属性时也必须工作**，另有排序、`created_at` 缺失、None 防御共 7 条；② `_looks_like_robot` 共享设备过滤——机器人 dp 命中、非机器人拒绝、空 dp 按机器人保留（宁可显示离线设备也不静默丢弃）；③ `_parse_expire`——4 种云端字段名、毫秒/秒自动换算、垃圾值跳过；④ 地图管线——字符串元组解析（含畸形输入跳过）、PNG 字节输出、确定性渲染。conftest 用轻量 stub 替代完整 Home Assistant，测试套件 0.2 秒跑完；新增 `.github/workflows/test.yml`，每次 push / PR 自动运行
 
 

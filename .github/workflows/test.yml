@@ -15,5 +15,7 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: pip install pytest aiohttp voluptuous
+      - name: Check README copies are in sync
+        run: python tools/sync_readme.py --check
       - name: Run tests
         run: pytest tests/ -q

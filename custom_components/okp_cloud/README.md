@@ -5,7 +5,7 @@
 # OKP 扫地机器人（OKP Cloud）
 
 [![GitHub Release](https://img.shields.io/github/v/release/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/releases/latest)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6+-%23049cdb?style=flat-square&logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![Last Commit](https://img.shields.io/github/last-commit/RockJesus/ha-okp?style=flat-square)](https://github.com/RockJesus/ha-okp/commits/main)
 
@@ -27,9 +27,15 @@
 
 ### 方式一：HACS（推荐）
 
-1. HACS → 「自定义仓库」→ 添加 `https://github.com/RockJesus/ha-okp`（类别：**集成**）
-2. 搜索并安装 **OKP Cloud 扫地机器人**
+本仓库已收录进 **HACS 默认仓库**（[hacs/default#13225](https://github.com/hacs/default/pull/13225)，2026-11-04 合并），**不需要添加自定义仓库**：
+
+1. HACS → 搜索 **OKP 扫地机器人**（或 OKP Cloud）
+2. 下载并安装
 3. 重启 Home Assistant
+
+> 若搜索不到，先确认 HACS 本体已更新（HACS → 「更新」里升级 HACS 后重启）；旧版 HACS 的默认仓库列表是缓存的。
+>
+> 早期版本曾要求「自定义仓库」方式添加。**已经添加过的请照旧使用**，不必删除——同一个仓库同时以两种身份登记时，HACS 可能列出两条，删掉自定义的那条即可，实体与配置条目不受影响。
 
 ### 方式二：手动安装
 
@@ -153,6 +159,50 @@ data:
 - 密码保存在 HA 配置存储（`.storage/`）中，仅用于首次配置/重新认证时登录；运行中不使用密码
 
 ## 📝 更新日志
+
+- v1.6.9（2026-11-04）：**已进入 HACS 默认仓库，收拾收尾项**（[hacs/default#13225](https://github.com/hacs/default/pull/13225) 已合并，默认分支列表第 3688 行、按字母序位置正确）。① README 安装说明从「添加自定义仓库」改为「直接在 HACS 里搜索」，并写明老用户已添加的自定义仓库不必删除；HACS 徽章由 `Custom` 改为 `Default`。② 修掉一个此前没人看见的坑：HACS 在 `render_readme` 下优先渲染 **`custom_components/okp_cloud/README.md`**，而这份副本从 v1.6.3 起就停止更新了——用户在 HACS 里看到的更新日志停在 v1.6.2。现新增 `tools/sync_readme.py` 作为唯一同步入口，CI 增加一步 `--check`，两份不同步直接构建失败，不会再悄悄漂移。③ `.gitignore` 补上 `.pytest_cache` / `.ruff_cache` / `.venv`（`tests/` 落地后这些目录才出现）。集成代码、`manifest.json`、实体数量与本版之前完全一致
+- v1.6.8（2026-11-04）：**补上单元测试与 CI**。此前仓库零测试，`entity_scope` 那次「修复从未生效」的事故（读了一个不存在的 `entry.hass` 属性，对所有条目静默返回空后缀）一条 5 行的测试就能拦住。本版新增 `tests/`：① `entity_scope` 的回归测试——**明确断言 entry 没有 `hass` 属性时也必须工作**，另有排序、`created_at` 缺失、None 防御共 7 条；② `_looks_like_robot` 共享设备过滤——机器人 dp 命中、非机器人拒绝、空 dp 按机器人保留（宁可显示离线设备也不静默丢弃）；③ `_parse_expire`——4 种云端字段名、毫秒/秒自动换算、垃圾值跳过；④ 地图管线——字符串元组解析（含畸形输入跳过）、PNG 字节输出、确定性渲染。conftest 用轻量 stub 替代完整 Home Assistant，测试套件 0.2 秒跑完；新增 `.github/workflows/test.yml`，每次 push / PR 自动运行
+
+
+- v1.6.7（2026-11-04）：**按 HACS 审核意见修复（frenck review）**。① 移除 `vacuum` 实体状态属性里的 `device_key`——那是 CoolKit 设备自身的密钥（eWeLink 用它加密局域网控制），属性对所有 HA 用户可见、会写入 recorder 历史并下发到每个前端，集成内部逻辑也不需要它对外暴露；② 地图渲染 `parse_map_paths` / `render_map_png` 改到 `hass.async_add_executor_job` 执行——原实现逐格遍历并对整块 RGB 缓冲做 `zlib.compress`，在事件循环里跑会卡住其他集成，现全部移出事件循环。功能、实体数量与命名均无变化
+- v1.6.6（2026-11-03）：**仓库合规化，为加入 HACS 默认仓库做准备**。① `manifest.json` 移除 `homeassistant` 键（该键只属于 `hacs.json`，出现在 manifest 会被 hassfest 判为非法选项），并去掉空的 `ssdp` / `zeroconf`（未实现对应发现流程却声明发现机制）；② 键序改为 `domain`、`name` 在前、其余按字母序，与 hassfest 校验一致；③ 仓库新增官方 **HACS Action** 与 **Hassfest** 两个 CI 工作流，每次 push/PR 自动校验集成规范；④ 补仓库 topics（`home-assistant` / `home-assistant-integration` / `hacs`），HACS 展示与检索需要。集成功能与实体无任何变化，本条仅为发布规范整改
+- v1.6.5（2026-11-03）：**修掉 v1.6.3 引入的崩溃**。v1.6.3 给 `refresh_session` 加诊断字段时用了 `CONF_ACCOUNT` 却没有从 `const` 导入，导致该服务每次调用都抛 `name 'CONF_ACCOUNT' is not defined`。更糟的是这掩盖了真相：因服务报错，一直读不到 `coordinator_count`，误判成「HA 上跑的还是没有这些字段的旧版本」。同时查清了「版本号说谎」的问题——`update` 实体长期显示 `installed = v1.6.2`，实际运行的却是 v1.5.5/1.6.0 的代码，原因是 HACS 走 `ghrp2.hacs.vip` 镜像下载，单文件超时 60 秒即告失败（日志 `Tries left 14`），安装从未真正落地。现已在 HA 主机上完成 v1.6.4 的真实安装并重启验证
+
+- v1.6.4（2026-11-03）：**修掉副账号「登录成功但 0 个设备」的真正根因**。v1.6.2 解决的是实体 ID 撞车（第二份被丢弃），v1.6.3 加的诊断证明副账号条目**连协调器都是 0 个**——问题不在实体层，在设备发现层。根因：配置流用 `GET /v2/home/list` + `GET /v9/home/device-list` 发现设备，而这条 **OKP 云接口是按 home 且只返回「本账号自有」设备**；别人分享过来的机器（CoolKit 里 `itemType = 2`）根本不在这个列表里，于是 `_validate_login` 拿到空列表、条目却照样创建，表现为「登录成功、什么都没出现」。这一版：① 发现流程在 OKP 列表之外**追加 CoolKit `GET /v2/device/thing`**（账号维度、含 `itemType 2` 分享设备），按 dp 特征（`ROBOT_DP_HINTS`）过滤出机器人，与 OKP 结果按 `third_dev_id` 去重合并；② 副账号即便没有任何 home 也能成立（`home_id` 允许为空）；③ `no_device` 报错改成可执行的三步自检（主账号是否已分享、分享是否生效、副账号 App 里能否看到）；④ 顺带修掉 v1.6.3 发布物里 `manifest.json` 被写成 0 字节导致 HACS 无法安装的问题
+
+- v1.6.3（2026-11-03）：**增加「条目自己到底拿到了什么」的诊断**。v1.6.2 修好 unique_id 撞车后现场确认：两个条目都 `session_state = rt`、`realtime = connected`、`error = None`，但 `entity_registry` 里 okp_cloud 的 34 个实体**全部挂在主账号条目下，副账号条目 0 个**。也就是说 `loaded` 并不等于「有设备」——一个条目可能加载成功却没有任何协调器，而界面和旧版诊断都看不出来。这一版给 `refresh_session` 的每条返回加上 `title` / `account` / `is_shared_entry` / `entity_scope` / `coordinator_count` / `devices[]`（含 `has_coordinator`），一眼能定位是「没扫到设备」还是「扫到了但没建协调器」。同时修正一处早先文档的错误描述：`vacuum.xiao_du_*` 实体属于**小度插件**，与 OKP 无关
+
+- v1.6.2（2026-11-03）：**修掉「多账号登录后不显示设备」**。用户按 v1.6.1 指南用副账号登录后，两个条目都 `loaded`、都扫到了同一台 K5 Ultra，但**第二个条目的实体一个都没出现**，日志刷满 `Platform okp_cloud does not generate unique IDs. ID okp_cloud_100258a68a already exists - ignoring vacuum.sao_di_ji_qi_ren`。根因：实体 `unique_id` 只由 CoolKit 设备 ID 拼成（`okp_cloud_<device_id>[_suffix]`），而同一台设备在主账号和副账号（或迁移期间的旧条目）里会出现两次 —— HA 按 unique_id 去重，第二份直接被丢弃，且**不报错到界面**，只在日志里留一行。这一版：① 新增 `const.entity_scope(entry)` —— **按条目创建时间排序，最早的那个条目保持原有 ID 不变**（已有安装的实体 ID、自动化、仪表盘全都不受影响），其余条目追加自己 `entry_id` 的 6 位后缀；② 六个平台（vacuum / sensor / select / switch / button / camera）共 12 个实体的 unique_id 全部接入；③ 同一台设备因此在两个账号下各有独立的实体组（如 `vacuum.sao_di_ji_qi_ren` 与 `vacuum.sao_di_ji_qi_ren_XXXXXX`），可同时在线、互不覆盖
+
+- v1.6.1（2026-11-03）：**「一个账号两处登录」给出可执行答案**。用户条件是只有一个手机号。查证结果：① CoolKit 注册接口「手机号和邮箱二选一」，没有绑定/叠加入口；OKP 登录接口对手机号与邮箱是两条独立路径（都返回「该帐号不存在」而非格式错误）——**同一手机号无法派出第二个账号**。② 但 OKP 官方 FAQ 明确支持**邮箱注册**且不需要第二个手机号（"create a new account using your email address"）。③ 因此可行路径是「主账号留在手机 App + 用邮箱注册副账号给集成」：OKP App 里把机器人分享给副邮箱 → HA 选择「共享账号」入口登录。这一版把这三步直接写进配置表单的说明文案里（中英双语），并新增 `docs/two-accounts-guide.md` 逐步操作文档，含权限勾选说明与旧条目处理方式
+
+- v1.6.0（2026-11-03）：**新设备免密码接入：`okp_cloud.rescan_devices` 服务**。此前的限制：多设备支持本身是有的（v1.1.9 起一个账号下每台机器人一个独立协调器，K2/K3/K5/L 系列通用，实体按设备实际携带的 dp 动态创建、没有机型白名单），但**在 App 里新买/新接入一台机器人后，集成只有在重新验证（输密码）时才会扫到它**——设备列表只在配置流里重建。这一版新增 `rescan_devices` 服务：① 优先走 CoolKit `GET /v2/device/thing` 全量清单——只需要 30 天有效的 CoolKit 令牌，完全不依赖几小时就过期的 OKP 登录令牌，也**能看到分享给本账号的设备**（itemType 2，v1.5.5 共享账号路线由此完整可用）；② 机器人识别按 dp 特征（workState / sweep / cleaningArea / startUpload 等），不会给非扫地机设备误建吸尘器实体；③ 新设备并入配置条目后自动重载集成，实体即刻出现；④ 云端已消失的设备**不会**被自动删除——移除硬件应当是主动操作，不能是网络抖动的副作用。返回值含 source / discovered / added / reloaded
+
+- v1.5.5（2026-11-03）：**找到厂商文档，给出「App 与集成同时登录」的最终答案**。这次不再靠实测反推：CoolKit 官方文档《开发文档_v2 → AT 和 RT 说明》原文写着——「同一个帐号在同一个应用下不能同时登录，每登录一次会重新刷新 access token，让前面登录的用户 access token 失效，使其被迫下线」，FAQ 也直接写「不支持多次登录同一帐号」。集成用的正是 OKP App 自己的 `appid`（`fv3LFoaAO65cb5bfaKw6okoHzBVpVX1z` / `domain-name: douban`），云端视角里它和手机 App 是同一个应用下的两次登录，**必然互踢**；而且会话被顶掉时**连刷新令牌一起作废**（v1.5.4 的 `refresh_attempts` 三条候选全 401 就是证据），所以「用 rt 悄悄救回来」这条路在这种场景下根本不存在。这一版做三件事：① 实时推送默认改为**开启**（`CONF_REALTIME_DEFAULT = True`）——v1.4.6 把它关掉的判断是错的：弄坏会话的是 App 登录，不是 socket；而长连接恰恰是让会话「保持在用」的唯一手段（实测 4 小时零续期、零重连、零认证失败）。② 新增 `session_end_reason`（`refresh_session` 返回值 + 会话传感器 `end_reason` / `end_reason_hint`）：把「会话死了」细分为 `session_superseded`（被同 appid 的另一次登录顶掉，重试无意义）与 `refresh_token_rejected`（rt 自然过期），并直接给出该怎么做，不用再猜。③ 文档 `docs/multi-client-limit.md` 记录三条路线：换 appid（普通人拿不到）、伪装成设备（拿不到账号级数据）、**设备分享给第二个账号**（官方推荐做法，唯一可行）——这才是「App 和集成同时可用」的真正实现方式。详见该文档
+
+- v1.5.4（2026-11-02）：**「重启就失效」的真正原因——续期请求被过期的 at 拖累**。实测：21:21 会话正常（`rt`，29 天），21:27 重启 HA，启动那一秒（21:27:41）就报 `401 cannot found access token info`，App 全程没登录。关键在续期接口的调用方式：`POST /v2/user/refresh` 必须带 `Authorization: Bearer <at>`，而代码先把 **at** 作为候选头发出去——重启后旧 at 已被云端作废，网关在**检查请求头这一步**就返回 401，body 里的 rt 根本没被看到。于是日志写成「rt 也被拒」，实际是「rt 没轮到」。这一版：① 候选顺序改为 **rt 优先**（`Bearer <rt>` → `Bearer <at>` → 不带 Authorization），让真正的续期凭据先说话；② 新增 `last_refresh_attempts`，把每个候选的真实返回逐条记下（如 `refresh token -> ok`、`access token -> 401 ...`），并在 `refresh_session` 返回值里输出 `refresh_attempts`——从此「rt 真的死了（402/403）」与「rt 压根没被检查」可以一眼区分；③ 401 仍然保留 rt 不清空（原有正确逻辑不变）。这是验证性版本：部署后的 `refresh_attempts` 会直接告诉我们 rt 到底还有没有效
+
+- v1.5.3（2026-11-02）：**找到并修掉「引入实时推送后会话就不稳」的真正原因**。现象：v1.3.3 加入实时推送之前，会话能稳定跑很久；加入之后，重启或过一段时间就 `401 cannot found access token info`。根因不是令牌存坏了，而是**实时 socket 与轮询在互相抢同一个单会话 slot**：① CoolKit 的 `userOnline` 是**单会话登记**——一个账号同时只允许一个在线客户端，握手用的那个 at 就是"当前会话"；② 但 `ensure_coolkit_token()` 会在 token 年龄超 1 小时或临近过期时续期，而**每次续期都会轮换 at**；③ socket 握完手后，轮询一续期，at 就变了 → socket 手里的 at 成了"旧会话"；④ socket 察觉 token 变了就重连，重连的 `userOnline` 又把刚续出来的**新 at** 顶掉 → 轮询 401 → 再续期 → 再被顶。这个循环跑几轮后，云端把整个会话一起销毁，本地 at/rt 全成孤儿，就是实测到的 `rt 也被拒`。这一版：① 新增 `api.session_socket_at`（会话归属标记）：socket 握手成功后登记"我在用这个 at"，断连时按值比较后释放；② `ensure_coolkit_token()` 增加闸门——**socket 持有会话期间一律不续期**，避免把 token 从 socket 脚下抽走；③ socket 重连前不再无条件续期（这正是旧代码自伤的地方）；④ 到期前 15 分钟由 **socket 主动交还会话**（`WS_HANDOVER_SECONDS`），轮询续期、等待 5 分钟后再重连，让续期和登记错开；⑤ `refresh_session` 的 `force` 不再强行轮换：socket 在线时直接返回提示，避免手动操作把会话打断；⑥ 心跳发送失败不再静默退出，改为记日志（原来会让 socket 变哑且看起来"健康"）。诊断新增 `session_held_by_socket` 字段，可直接看出当前是 socket 还是轮询在持有会话
+
+- v1.5.2（2026-11-02）：**修掉 v1.5.1 的导入遗漏**。现场日志暴露了 `OKP first refresh failed (retrying every 120s): name 'CK_ENDPOINT_USER_LOGOUT' is not defined`：新增的释放接口常量只定义了、没在 `api.py` 的导入块里引入，导致 v1.5.1 的「释放 + 续期」探查在第一次轮询就抛 `NameError`，整轮读取直接失败（诊断显示 `session_origin = unknown`、`realtime = null`）。这一版：① 补上 `CK_ENDPOINT_USER_LOGOUT` 的导入；② 把探查整体加固成**纯尽力而为**——释放调用即使抛出意料之外的异常也只记 debug，绝不中断后面的续期与认证失败计数（否则 reauth 永远不会触发，条目会一直卡在 unknown）；③ 版本号按「遇 10 进 1」规则推进到 1.5.2
+
+- v1.5.1（2026-11-02）：**给「会话是谁拿走的」提供可验证证据**。v1.5.0 假设「重启丢会话」是集成写坏了令牌，但现场证据（rt 明明存在、却被云端以 `401 cannot found access token info` 拒掉）说明更可能是**会话被别人顶掉**。这一版不猜，直接让集成把判定过程记录下来：① 新增会话来源字段 `coolkit_session_origin`（`reauth-password` = 用密码登录换来的，代价是 App 被挤掉；`rt-renewal` = 用刷新令牌续的，谁都碰不到；`okplife` = 走 OKP 登录令牌续的）与 `coolkit_session_started_at`，随令牌一起持久化，重启后仍可追溯；② 遇到 `401` 时先做一次「释放 + 续期」探查：调用 `POST /v2/user/logout` 主动释放自己的旧 access token（云端通常「新会话顶掉旧会话」，主动释放后才接受续期），再用 rt 续期；**能续成功说明旧 token 只是被撤销、会话没被抢**，直接恢复轮询、不弹重新验证；续期也被拒说明会话确实被抢走，日志明确写 `the session was taken over, not lost locally`；③ `refresh_session` 服务返回值新增 `session_origin` / `session_started_at` / `last_rt_probe_result`，不用翻日志就能判断归属
+
+- v1.5.0（2026-11-02）：**修掉「重新验证后一切正常、一重启就失效」**。现象：19:18 重新验证成功，`cloud_session = rt`、电量/在线全部正常；19:26 重启 HA，26 秒内就报 `coolkit refresh failed: 401 cannot found access token info`，回到 `stale`。根因是**令牌只写了一部分进配置条目**：`config_flow._entry_data()` 手挑了几个 key（`coolkit_at` / `coolkit_at_expire` / `coolkit_rt` ...），漏了 `coolkit_at_lifetime`、`coolkit_at_expire_inferred` 和 v1.4.11 新增的 rt 时间戳；`async_step_reauth` 的静默恢复分支也是手拼字段。这类「半套令牌」条目能加载、能跑一次，重启后恢复出来的会话就被云端拒绝。这一版：① 新增 `const.persisted_token_fields(api)` 作为**唯一**写入入口，coordinator 轮询、配置流程、重新验证静默恢复、启动升级路径四处全部改用它，杜绝字段漂移；② 启动自检：从条目恢复时若发现「有 rt 但没有 at 过期时间」这类残缺组合，先打日志说清楚，再用 rt 续期一次后才进轮询，不再带着来路不明的会话开跑；③ 启动时以 debug 打出 `OKP session restored from the config entry: {...}`，下次再出问题能直接看到恢复到了什么
+
+- v1.4.11（2026-11-02）：**别让「看一眼」把会话看没了**。部署 v1.4.10 时用 `okp_cloud.refresh_session` 做验证，结果 CoolKit 云端在续期时轮换了刷新令牌（rt）并作废旧令牌，几小时后两条令牌链同时失效（`coolkit refresh failed: 401 cannot found access token info` + `4001 请先登录`），只能重新输密码。这一版：① `refresh_session` 改为**默认只读**（`mode: report`，不发任何网络请求、不消耗令牌），要真续期必须显式传 `force: true`；② 认证失败计数分级：rt 已被云端拒绝（已清空）按满速计数，rt 仍在的临时失败半速计数——连续三次云端抖动不再弹密码框（弹一次就丢一次 App 会话）；③ 新增 rt 生命周期追踪：`coolkit_rt_issued_at` / `coolkit_rt_rejected_at` / `coolkit_rt_reject_count`，持久化到配置条目，下次会话失效能直接看出是哪个时间点被谁消耗
+
+- v1.4.10（2026-11-02）：**清扫模式选择器改中文**。`select.*_clean_mode` 的选项由 `smart / random / wall_follow / spiral` 改为 **智能 / 随机 / 沿边 / 螺旋**。① 状态机与传感器（`sensor.*_clean_mode`、定时任务的 `mode` 提示）内部仍用英文 code，避免破坏已有自动化与历史统计；② `select.select_option` 同时接受中文标签和旧的英文值，老脚本调用不会报 `unknown clean mode`；③ 增加 `RestoreEntity` 兼容：升级后重启时把 `.storage` 里恢复的旧英文状态映射为中文，避免首个轮询周期前显示 `unknown`
+
+- v1.4.9（2026-11-02）：**App 登录与集成会话解耦**。① `ensure_coolkit_token`：只要 CoolKit 刷新令牌（rt）还在，rt 刷新就是唯一续期路径——rt 临时失败（网络抖动/云端 5xx）不再回退到 okplife 路由；此前 App 登录踢掉 OKP 令牌后，okplife 回退必然抛认证错误并推进 reauth 计数，逼用户输密码（密码登录又把 App 踢回去，两边互踢的恶性循环）。rt 被云端明确拒绝（402/403，此时 rt 已被清空）才回退 okplife。② reauth 流程静默自愈：进入密码表单前，先用配置条目里存的 rt 尝试续期一次，成功则直接更新令牌并结束 reauth——App 登录顶掉 OKP 令牌这种最常见场景下，**无需输密码、App 会话不受任何影响**；只有 rt 也死了才出现密码表单。③ reauth 表单文案明确提示「提交密码会临时挤掉 App 登录」
+
+- v1.4.8（2026-11-02）：**热修复 v1.4.7 引入的卸载崩溃**。v1.4.7 用 `entry.async_on_unload(task.cancel)` 取消重试任务，而 `Task.cancel()` 返回 `True`；Home Assistant 把 unload 回调的非 `None` 返回值当成待等待的协程，于是卸载报 `a coroutine was expected, got True`，条目卡在 `failed_unload`——重新验证完成后无法重载、所有实体变 `unavailable`。现改为显式 `def _cancel_retry_task(): task.cancel()`（返回 `None`）
+
+- v1.4.7（2026-11-02）：**修复「首次刷新失败后集成静默瘫痪」**。场景：HA 重启时云端会话已失效（App 登录顶号，CoolKit 返回 `401: cannot found access token info`、okplife 返回 `4001: 请先登录`），`async_config_entry_first_refresh()` 抛错，而 Home Assistant 在这种情况下**不会**排下一次定时刷新——于是轮询彻底停摆：`last_poll_at` 冻在启动那一刻、`auth_failures` 永远停在 1、永远到不了第 3 次，「重新验证」提示永不出现，所有实体卡在最后一个值，只能手动重载（重载也只是重复同一个死循环）。现在：① 首次刷新失败后启动内部重试循环（每 120 秒一次，直到有轮询成功为止，条目卸载时自动取消），轮询恢复后自动交回定时器；② 首次刷新若因**凭据**失败，直接弹出重新验证提示（不再等 3 个永远不会到来的周期）；③ 日志把「will retry on poll」改成真实的「retrying every 120s」
+
+- v1.4.6（2026-11-02）：**实时推送默认关闭**。真机验证坐实厂商云端对每个用户只允许一个「App 会话」：集成 WebSocket 首次握手成功并收到推送后，打开 OKP App 即被踢下线，之后每次重连都被拒（`handshake rejected: 406 Authentication Failed`），杀掉 App 也不恢复；且 App 登录会连带作废集成的 OKP 令牌链（`4001: 请先登录`，与 v1.2.0 抓包结论一致）。HTTP 轮询全程不受影响（设计兜底）。现在实时推送默认 off，想要秒级刷新的用户可在「配置 → 启用实时推送」显式打开并自行承担与 App 的互踢；已显式打开的存量条目需要手动关一次（存储值优先于默认值）
+
+- v1.4.5（2026-11-02）：按酷宅官方开放文档（`CoolKit-Technologies/eWeLink-API`）对照后修三处。① **读路径 403 不再误杀令牌**：官方错误码表 `401`=令牌被顶号、`402`=令牌过期、`403`=找不到接口（路由/权限问题）；此前 `get_thing_state`／`_ck_get`／`query_ota` 三个读接口收到 403 也清除令牌并触发重登录，一旦某个云端端点下线/改名就会把还活着的会话搞挂，现在与写入路径一致仅对 401/402 标记令牌失效，403 作为普通错误记录。② **处理 `sysmsg` 设备上下线推送**：官方 WS 协议含 `{"action":"sysmsg","params":{"online":false}}` 上下线通知，此前只认 `update` 帧，设备离线要等最多 180 秒轮询才能发现；现在收到 sysmsg 即时更新在线标志，连接传感器秒级反应（实体本体仍保持 available 保留最后状态，与既有设计一致）。③ **握手 nonce 对齐官方要求**：文档要求 `nonce` 必填、8 位字母数字随机数，此前沿用抓包里的空串，现改为随机生成，防服务端日后收紧校验
 
 - v1.4.4（2026-11-01）：自动松开后立刻回读一次状态。实测按住不放时看门狗确实在 12 秒左右松开（日志 `OKP manual move still held after 10.0s; releasing automatically`），但因为实体属性是「上次写状态」的快照，界面上仍显示「按住中」，差点误判成没生效。现在松开后 1.5 秒补一次读取，`remote_move` 立刻变回 `released`
 
